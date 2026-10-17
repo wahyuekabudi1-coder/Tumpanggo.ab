@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Merchant, Driver } from '../types.ts';
 import Logo from './Logo.tsx';
+import { safeStorage } from '../utils/safeStorage.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, Lock, Mail, ArrowRight, ChevronLeft, Store, 
   CheckCircle, AlertCircle, Loader2, Phone, Bike, User, MapPin, Tag, ExternalLink
@@ -125,7 +127,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       }
 
       setSuccessMsg(`Aktivasi berhasil! Akun toko "${activationStoreName}" telah aktif.`);
-      localStorage.setItem('tumpang_auth_email', activationEmail);
+      safeStorage.setItem('tumpang_auth_email', activationEmail);
       window.history.replaceState({}, document.title, window.location.pathname);
       
       setTimeout(() => {
@@ -166,8 +168,8 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
       const data = await res.json();
       if (res.ok && data.token) {
         const userEmail = emailInput.trim();
-        localStorage.setItem('tumpang_auth_email', userEmail);
-        localStorage.setItem('tumpang_auth_token', data.token);
+        safeStorage.setItem('tumpang_auth_email', userEmail);
+        safeStorage.setItem('tumpang_auth_token', data.token);
         setSuccessMsg('Login Berhasil! Mengalihkan...');
         setTimeout(() => {
           onSuccess(userEmail, data.user?.id);
@@ -227,7 +229,7 @@ export default function PortalLogin({ role, targetMerchantId, targetDriverId, in
 
       const authIdentifier = data.merchant.email || data.merchant.phone || data.merchant.id;
       setSuccessMsg(`Pendaftaran berhasil! Selamat datang, Toko "${data.merchant.name}". Mengalihkan ke dashboard...`);
-      localStorage.setItem('tumpang_auth_email', authIdentifier);
+      safeStorage.setItem('tumpang_auth_email', authIdentifier);
 
       setTimeout(() => {
         onSuccess(authIdentifier, data.merchant.id);

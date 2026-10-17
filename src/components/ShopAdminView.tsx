@@ -28,6 +28,7 @@ import {
   Lock, Tag, Layers
 } from 'lucide-react';
 import { compressImage } from '../utils/imageCompressor';
+import { safeStorage } from '../utils/safeStorage.ts';
 
 interface ShopAdminViewProps {
   onBackToCustomer?: () => void;
@@ -35,10 +36,10 @@ interface ShopAdminViewProps {
 
 export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) {
   // Auth State
-  const [token, setToken] = useState<string>(() => localStorage.getItem('tumpang_shop_token') || '');
+  const [token, setToken] = useState<string>(() => safeStorage.getItem('tumpang_shop_token') || '');
   const [adminUser, setAdminUser] = useState<any>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_shop_user');
+      const saved = safeStorage.getItem('tumpang_shop_user');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -169,8 +170,8 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
     const res = await fetch(url, { ...options, headers });
     if (res.status === 401 || res.status === 403) {
       // Invalid or expired token
-      localStorage.removeItem('tumpang_shop_token');
-      localStorage.removeItem('tumpang_shop_user');
+      safeStorage.removeItem('tumpang_shop_token');
+      safeStorage.removeItem('tumpang_shop_user');
       setToken('');
       setAdminUser(null);
       throw new Error('Sesi Admin telah berakhir. Silakan login kembali.');
@@ -262,8 +263,8 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
 
       setToken(data.token);
       setAdminUser(data.user);
-      localStorage.setItem('tumpang_shop_token', data.token);
-      localStorage.setItem('tumpang_shop_user', JSON.stringify(data.user));
+      safeStorage.setItem('tumpang_shop_token', data.token);
+      safeStorage.setItem('tumpang_shop_user', JSON.stringify(data.user));
       showNotification('success', `Selamat datang, ${data.user?.name || 'Administrator'}!`);
     } catch (err: any) {
       setLoginError(err.message || 'Terjadi kesalahan sistem.');
@@ -275,8 +276,8 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
   // Handle Logout
   const handleLogout = () => {
     if (window.confirm('Apakah Anda yakin ingin keluar dari Portal Admin Tumpang Shop?')) {
-      localStorage.removeItem('tumpang_shop_token');
-      localStorage.removeItem('tumpang_shop_user');
+      safeStorage.removeItem('tumpang_shop_token');
+      safeStorage.removeItem('tumpang_shop_user');
       setToken('');
       setAdminUser(null);
       showNotification('success', 'Anda telah berhasil logout.');
@@ -1257,7 +1258,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
                       <div>
                         <span className="text-[10px] text-slate-400 block font-bold">Harga Dasar:</span>
                         <span className="font-black text-slate-900">
-                          Rp {product.basePrice.toLocaleString('id-ID')}
+                          Rp {(product.price || product.basePrice || 0).toLocaleString('id-ID')}
                         </span>
                         <span className="text-[10px] text-slate-400">/{product.unit}</span>
                       </div>
@@ -1292,7 +1293,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
                             sku: product.sku,
                             categoryId: product.categoryId,
                             description: product.description,
-                            basePrice: product.basePrice,
+                            basePrice: product.price ?? product.basePrice ?? 0,
                             stock: product.stock,
                             unit: product.unit,
                             isActive: product.isActive,

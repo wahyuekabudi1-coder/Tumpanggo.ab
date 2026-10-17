@@ -13,6 +13,8 @@ import PortalLogin from './components/PortalLogin.tsx';
 import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
 import ShopAdminView from './components/ShopAdminView.tsx';
 import { SystemConfig } from './types.ts';
+import { safeStorage } from './utils/safeStorage.ts';
+import { apiFetch as fetch } from './utils/apiClient.ts';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
 
 export default function App() {
@@ -20,7 +22,7 @@ export default function App() {
   const [activeMerchantId, setActiveMerchantId] = useState<string>('');
   const [activeDriverId, setActiveDriverId] = useState<string>('');
   const [merchantPortalTab, setMerchantPortalTab] = useState<'login' | 'register'>('login');
-  const [verifiedEmail, setVerifiedEmail] = useState<string>(() => localStorage.getItem('tumpang_auth_email') || '');
+  const [verifiedEmail, setVerifiedEmail] = useState<string>(() => safeStorage.getItem('tumpang_auth_email') || '');
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isDemoMode, setIsDemoMode] = useState(false);
   const [merchants, setMerchants] = useState<any[]>([]);
@@ -107,7 +109,7 @@ export default function App() {
       } else {
         // Logged in email does not own any merchant, reset session
         setVerifiedEmail('');
-        localStorage.removeItem('tumpang_auth_email');
+        safeStorage.removeItem('tumpang_auth_email');
       }
     }
   }, [currentRole, activeMerchantId, verifiedEmail, merchants]);
@@ -121,7 +123,7 @@ export default function App() {
       } else {
         // Logged in email does not match any driver, reset session
         setVerifiedEmail('');
-        localStorage.removeItem('tumpang_auth_email');
+        safeStorage.removeItem('tumpang_auth_email');
       }
     }
   }, [currentRole, activeDriverId, verifiedEmail, drivers]);
@@ -330,7 +332,7 @@ export default function App() {
               merchantId={activeMerchantId} 
               onLogout={() => {
                 setVerifiedEmail('');
-                localStorage.removeItem('tumpang_auth_email');
+                safeStorage.removeItem('tumpang_auth_email');
                 setActiveMerchantId('');
                 setCurrentRole('CUSTOMER');
               }}
@@ -368,7 +370,7 @@ export default function App() {
               driverId={activeDriverId} 
               onLogout={() => {
                 setVerifiedEmail('');
-                localStorage.removeItem('tumpang_auth_email');
+                safeStorage.removeItem('tumpang_auth_email');
                 setActiveDriverId('');
                 setCurrentRole('CUSTOMER');
               }}
@@ -389,7 +391,7 @@ export default function App() {
               onUpdateConfig={(conf) => setSystemConfig(conf)}
               onLogout={() => {
                 setVerifiedEmail('');
-                localStorage.removeItem('tumpang_auth_email');
+                safeStorage.removeItem('tumpang_auth_email');
                 setCurrentRole('CUSTOMER');
               }}
             />

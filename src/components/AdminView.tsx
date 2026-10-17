@@ -11,6 +11,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Order, OrderStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig 
 } from '../types.ts';
+import { safeStorage } from '../utils/safeStorage.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, CheckSquare, ClipboardList, Store, Users, DollarSign, Settings, 
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
@@ -115,10 +117,10 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
             createdAt: new Date().toISOString(),
             read: false
           };
-          const existingEmailsStr = localStorage.getItem('tumpang_simulated_emails') || '[]';
+          const existingEmailsStr = safeStorage.getItem('tumpang_simulated_emails') || '[]';
           const existingEmails = JSON.parse(existingEmailsStr);
           existingEmails.unshift(simulatedEmail);
-          localStorage.setItem('tumpang_simulated_emails', JSON.stringify(existingEmails));
+          safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(existingEmails));
           window.dispatchEvent(new Event('tumpang_new_email'));
         }
 

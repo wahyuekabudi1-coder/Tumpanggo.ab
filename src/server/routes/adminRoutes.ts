@@ -123,3 +123,4 @@ adminRouter.post('/settlements/:id/confirm', requireRole(['ADMIN']), async (req:
 adminRouter.get('/logs', requireRole(['ADMIN']), (req: Request, res: Response) => {
   res.json(foodDb.getLogs());
 });
+

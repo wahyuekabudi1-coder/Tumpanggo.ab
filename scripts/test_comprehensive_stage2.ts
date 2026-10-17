@@ -430,60 +430,56 @@ async function runStage2Audit() {
   );
 
   // -------------------------------------------------------------------------
-  // 7. REDEEM LISENSI PREMIUM
+  // 7. SISTEM PRE-ORDER NATIVE (BEBAS LISENSI) & PENGHAPUSAN SISTEM PREMIUM
   // -------------------------------------------------------------------------
-  console.log('\n📦 7. REDEEM LISENSI PREMIUM PRE-ORDER');
+  console.log('\n📦 7. FITUR PRE-ORDER NATIVE & PENGHAPUSAN SISTEM PREMIUM');
 
+  // Verify license endpoints are completely removed (404)
   const licensesRes = await fetch(`${BASE_URL}/api/licenses`, {
     headers: { Authorization: `Bearer ${adminToken}` }
   });
-  const licenses = await licensesRes.json();
-  let unusedLic = Array.isArray(licenses) ? licenses.find((l: any) => l.status === 'UNUSED') : null;
-  const licKey = unusedLic ? unusedLic.key : 'TUMPANG-PREM-' + Math.random().toString(36).substring(2, 8).toUpperCase();
-  if (!unusedLic) {
-    await fetch(`${BASE_URL}/api/licenses`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`
-      },
-      body: JSON.stringify({ key: licKey, durationDays: 30 })
-    });
-  }
+  record(
+    '7. Penghapusan Sistem Premium',
+    'Endpoint lisensi /api/licenses telah dihapus dari sistem (HTTP 404)',
+    licensesRes.status === 404,
+    `Status ${licensesRes.status} (Not Found)`
+  );
 
-  // Merchant 1 redeems license
-  const redeemRes = await fetch(`${BASE_URL}/api/merchants/${m1.id}/redeem-license`, {
-    method: 'POST',
+  // Verify merchant can natively configure and use pre-order without any license
+  const updatePreOrderRes = await fetch(`${BASE_URL}/api/merchants/${m1.id}`, {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${m1Token}`
     },
-    body: JSON.stringify({ key: licKey })
+    body: JSON.stringify({
+      preOrderOnly: true,
+      preOrderMinAmount: 25000,
+      preOrderLeadDays: 2
+    })
   });
-  const redeemedMerchant = await redeemRes.json();
+  const updatedMerchant = await updatePreOrderRes.json();
 
   record(
-    '7. Lisensi Premium',
-    `Redeem lisensi ${licKey} oleh Merchant ${m1.name}`,
-    redeemRes.status === 200 && Boolean(redeemedMerchant.isPremium),
-    `Status ${redeemRes.status}, isPremium: true, expired: ${redeemedMerchant.licenseExpiresAt}`
+    '7. Fitur Pre-Order Native',
+    `Pengaturan Pre-Order aktif secara native pada Merchant ${m1.name} tanpa lisensi`,
+    updatePreOrderRes.status === 200 && Boolean(updatedMerchant.preOrderOnly) && updatedMerchant.preOrderLeadDays === 2,
+    `Status ${updatePreOrderRes.status}, preOrderOnly: true, minAmount: Rp 25.000, leadDays: 2`
   );
 
-  // Second attempt using the same key must fail
-  const redeemAgainRes = await fetch(`${BASE_URL}/api/merchants/${m2.id}/redeem-license`, {
-    method: 'POST',
+  // Restore m1 settings so other tests continue normally
+  await fetch(`${BASE_URL}/api/merchants/${m1.id}`, {
+    method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${adminToken}`
+      Authorization: `Bearer ${m1Token}`
     },
-    body: JSON.stringify({ key: licKey })
+    body: JSON.stringify({
+      preOrderOnly: false,
+      preOrderMinAmount: 0,
+      preOrderLeadDays: 0
+    })
   });
-  record(
-    '7. Lisensi Premium',
-    'Penggunaan ulang lisensi yang telah dipakai ditolak',
-    redeemAgainRes.status === 400,
-    `Status ${redeemAgainRes.status} (Kode lisensi ini sudah digunakan)`
-  );
 
   // -------------------------------------------------------------------------
   // 8. PERSISTENSI DATA SETELAH RESTART & BACKUP

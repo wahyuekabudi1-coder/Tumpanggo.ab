@@ -50,7 +50,7 @@ export interface Merchant {
   createdAt: string;
   updatedAt: string;
   
-  // Pre-order and Delivery Settings (Available for all merchants)
+  // Pre-order and Delivery Settings (Available for all merchants natively)
   preOrderOnly?: boolean;
   allowInstantAndPreOrder?: boolean;
   preOrderMinAmount?: number;
@@ -165,13 +165,14 @@ export interface AuditLog {
 }
 
 export interface SystemConfig {
+  id?: string;
   serviceFee: number;
-  deliveryFeePerKm: number;
+  deliveryFeePerKm?: number;
   defaultDeliveryFee: number;
-  commissionPercent: number; // e.g. 10 for 10%
-  assignmentMode: AssignmentMode;
+  commissionPercent?: number; // e.g. 10 for 10%
+  assignmentMode?: AssignmentMode;
   qrisImage: string;
-  systemOpen: boolean;
+  systemOpen?: boolean;
 }
 
 export interface PartnerRegistration {

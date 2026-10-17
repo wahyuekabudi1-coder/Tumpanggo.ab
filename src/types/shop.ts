@@ -27,6 +27,7 @@ export interface ShopProduct {
   description: string;
   categoryId: string;
   price: number;       // Base price in IDR
+  basePrice?: number;  // Optional alias for price
   stock: number;       // Base stock count
   images: string[];    // Image URLs or base64
   variations?: ShopProductVariation[];

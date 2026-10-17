@@ -40,9 +40,6 @@
         "email": { "type": "string", "description": "Registered email of owner for verification" },
         "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
         "updatedAt": { "type": "string", "description": "Update timestamp ISO string" },
-        "isPremium": { "type": "boolean", "description": "Whether the merchant has active premium contract features enabled" },
-        "licenseKey": { "type": "string", "description": "Activated contract license key" },
-        "licenseExpiresAt": { "type": "string", "description": "Timestamp when the contract expires" },
         "preOrderOnly": { "type": "boolean", "description": "Whether this store operates on pre-order only" },
         "preOrderMinAmount": { "type": "number", "description": "Minimum transaction subtotal for pre-order checkout" },
         "preOrderLeadDays": { "type": "number", "description": "Advance ordering notice required in days" }
@@ -164,21 +161,6 @@
         "createdAt": { "type": "string", "description": "Creation timestamp ISO string" }
       },
       "required": ["id", "action", "userId", "role", "details", "createdAt"]
-    },
-    "LicenseKey": {
-      "title": "LicenseKey",
-      "description": "A pre-order contract license subscription key",
-      "type": "object",
-      "properties": {
-        "key": { "type": "string", "description": "The unique license string" },
-        "durationDays": { "type": "number", "description": "Active subscription span in days" },
-        "status": { "type": "string", "enum": ["UNUSED", "USED"], "description": "Redemption status of the key" },
-        "usedByMerchantId": { "type": "string", "description": "Merchant ID that redeemed this key" },
-        "usedByMerchantName": { "type": "string", "description": "Name of merchant who used this key" },
-        "usedAt": { "type": "string", "description": "Redemption timestamp ISO string" },
-        "createdAt": { "type": "string", "description": "Generation timestamp ISO string" }
-      },
-      "required": ["key", "durationDays", "status", "createdAt"]
     },
     "ShopConfig": {
       "title": "ShopConfig",
@@ -321,10 +303,6 @@
     "/auditLogs/{logId}": {
       "schema": "AuditLog",
       "description": "Diagnostic and transaction logs"
-    },
-    "/licenses/{licenseKey}": {
-      "schema": "LicenseKey",
-      "description": "Premium contract licenses for stores"
     },
     "/shop_config/main": {
       "schema": "ShopConfig",

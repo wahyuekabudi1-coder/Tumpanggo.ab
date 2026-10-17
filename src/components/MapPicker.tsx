@@ -54,26 +54,67 @@ export default function MapPicker({
     return '';
   };
 
+  // Dynamic Leaflet Loader (prevents blocking page bootstrap)
+  const ensureLeafletLoaded = (): Promise<any> => {
+    if (typeof window === 'undefined') return Promise.resolve(null);
+    if ((window as any).L) return Promise.resolve((window as any).L);
+
+    return new Promise((resolve) => {
+      if (!document.getElementById('leaflet-css')) {
+        const link = document.createElement('link');
+        link.id = 'leaflet-css';
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+      }
+
+      const existingScript = document.getElementById('leaflet-js') as HTMLScriptElement | null;
+      if (existingScript) {
+        if ((window as any).L) {
+          resolve((window as any).L);
+        } else {
+          existingScript.addEventListener('load', () => resolve((window as any).L));
+        }
+        return;
+      }
+
+      const script = document.createElement('script');
+      script.id = 'leaflet-js';
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.async = true;
+      script.onload = () => resolve((window as any).L);
+      script.onerror = () => {
+        console.warn('Leaflet failed to load from CDN.');
+        resolve(null);
+      };
+      document.body.appendChild(script);
+    });
+  };
+
   useEffect(() => {
     if (!mapContainerRef.current) return;
-    const L = (window as any).L;
-    if (!L) {
-      console.error('Leaflet is not loaded from CDN.');
-      return;
-    }
+    let isMounted = true;
 
-    // Initialize map
-    const map = L.map(mapContainerRef.current, {
-      zoomControl: !readOnly,
-      attributionControl: false
-    }).setView([initialLat, initialLng], 15);
+    ensureLeafletLoaded().then((L) => {
+      if (!isMounted || !mapContainerRef.current) return;
+      if (!L) {
+        console.warn('Leaflet library is not available.');
+        return;
+      }
+      if (mapRef.current) return;
 
-    mapRef.current = map;
+      // Initialize map
+      const map = L.map(mapContainerRef.current, {
+        zoomControl: !readOnly,
+        attributionControl: false
+      }).setView([initialLat, initialLng], 15);
 
-    // Load OpenStreetMap tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
-    }).addTo(map);
+      mapRef.current = map;
+
+      // Load OpenStreetMap tiles
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
+      }).addTo(map);
 
     // If read-only, we might just want to put static markers
     if (readOnly) {
@@ -131,10 +172,14 @@ export default function MapPicker({
         onLocationSelected?.(initialLat, initialLng, address);
       });
     }
+  });
 
     return () => {
-      map.remove();
-      mapRef.current = null;
+      isMounted = false;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
   }, [readOnly, markerLocations.length]);
 

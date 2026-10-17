@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Merchant, Driver } from '../types.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { ShieldCheck, Store, Navigation, User, X, Key, Info } from 'lucide-react';
 
 interface AuthModalProps {

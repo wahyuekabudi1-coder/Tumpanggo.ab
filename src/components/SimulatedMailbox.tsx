@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { safeStorage } from '../utils/safeStorage.ts';
 import { Mail, Inbox, Trash2, X, ExternalLink, Copy, Check, Info, Bell } from 'lucide-react';
 
 interface SimulatedEmail {
@@ -21,7 +22,7 @@ export default function SimulatedMailbox() {
   // Load emails from localStorage
   const loadEmails = () => {
     try {
-      const stored = localStorage.getItem('tumpang_simulated_emails');
+      const stored = safeStorage.getItem('tumpang_simulated_emails');
       if (stored) {
         setEmails(JSON.parse(stored));
       } else {
@@ -50,14 +51,14 @@ export default function SimulatedMailbox() {
   const handleMarkAllRead = () => {
     const updated = emails.map(email => ({ ...email, read: true }));
     setEmails(updated);
-    localStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
+    safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
   };
 
   const handleDeleteEmail = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const updated = emails.filter(email => email.id !== id);
     setEmails(updated);
-    localStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
+    safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
     if (selectedEmail?.id === id) {
       setSelectedEmail(null);
     }
@@ -66,7 +67,7 @@ export default function SimulatedMailbox() {
   const handleClearAll = () => {
     if (confirm('Hapus semua email simulasi?')) {
       setEmails([]);
-      localStorage.removeItem('tumpang_simulated_emails');
+      safeStorage.removeItem('tumpang_simulated_emails');
       setSelectedEmail(null);
     }
   };
@@ -76,7 +77,7 @@ export default function SimulatedMailbox() {
     // Mark as read
     const updated = emails.map(e => e.id === email.id ? { ...e, read: true } : e);
     setEmails(updated);
-    localStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
+    safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
   };
 
   const handleCopyText = (text: string, id: string) => {

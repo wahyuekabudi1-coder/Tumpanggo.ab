@@ -50,10 +50,6 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    match /licenses/{licenseKey} {
-      allow read, write: if false;
-    }
-
     match /partnerRegistrations/{registrationId} {
       allow read, write: if false;
     }

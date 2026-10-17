@@ -103,6 +103,11 @@ app.use('/api/orders', orderRouter);
 app.use('/api', adminRouter);
 app.use('/api/shop', shopRouter);
 
+// 404 handler for unhandled API routes
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API endpoint ${req.method} ${req.path} tidak ditemukan.` });
+});
+
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('[TumpangFood Server Error]', err);

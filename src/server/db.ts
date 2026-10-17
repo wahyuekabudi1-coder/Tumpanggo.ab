@@ -199,10 +199,156 @@ export class FoodDatabase {
     if (!this.data.auditLogs) this.data.auditLogs = [];
     if (!this.data.systemConfig) this.data.systemConfig = initialConfig;
     if (!this.data.partnerRegistrations) this.data.partnerRegistrations = [];
+
+    if (this.data.merchants.length === 0) {
+      this.seedInitial();
+    }
   }
 
   private seedInitial() {
     this.data.systemConfig = initialConfig;
+    const now = new Date().toISOString();
+
+    this.data.merchants = [
+      {
+        id: 'm1',
+        name: 'Warung Bakso & Mie Ayam Barokah',
+        ownerName: 'Pak Slamet',
+        phone: '081234567891',
+        address: 'Jl. Raya Tumpang No. 45, Kec. Tumpang, Malang',
+        latitude: -7.9984,
+        longitude: 112.7663,
+        openTime: '09:00',
+        closeTime: '21:00',
+        bankName: 'BRI',
+        bankAccount: '1234567890',
+        bankHolder: 'Pak Slamet',
+        active: true,
+        rating: 4.8,
+        cookTimeEstimate: '15-25 min',
+        image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=500&auto=format&fit=crop&q=60',
+        description: 'Bakso urat sapi asli, mie ayam ceker spesial khas Tumpang.',
+        category: 'Makanan Berat',
+        email: 'm1@tumpanggo.com',
+        createdAt: now,
+        updatedAt: now,
+        isActivated: true,
+        password: hashPassword('m1123')
+      },
+      {
+        id: 'm2',
+        name: 'Ayam Geprek Sambal Korek Tumpang',
+        ownerName: 'Bu Siti Aminah',
+        phone: '081234567892',
+        address: 'Jl. Pahlawan No. 12, Kec. Tumpang, Malang',
+        latitude: -8.0012,
+        longitude: 112.7681,
+        openTime: '10:00',
+        closeTime: '22:00',
+        bankName: 'BCA',
+        bankAccount: '0987654321',
+        bankHolder: 'Bu Siti Aminah',
+        active: true,
+        rating: 4.7,
+        cookTimeEstimate: '15-20 min',
+        image: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=500&auto=format&fit=crop&q=60',
+        description: 'Ayam goreng renyah krispi dengan kepedasan sambal korek khas Tumpang.',
+        category: 'Aneka Ayam',
+        email: 'm2@tumpanggo.com',
+        createdAt: now,
+        updatedAt: now,
+        isActivated: true,
+        password: hashPassword('m2123')
+      }
+    ];
+
+    this.data.categories = [
+      { id: 'cat_m1_1', merchantId: 'm1', name: 'Menu Utama', orderIndex: 1 },
+      { id: 'cat_m1_2', merchantId: 'm1', name: 'Minuman Segar', orderIndex: 2 },
+      { id: 'cat_m2_1', merchantId: 'm2', name: 'Paket Geprek', orderIndex: 1 }
+    ];
+
+    this.data.menuItems = [
+      {
+        id: 'menu_1',
+        merchantId: 'm1',
+        categoryId: 'cat_m1_1',
+        name: 'Bakso Spesial Tumpang',
+        description: 'Bakso daging sapi asli dengan kuah kaldu gurih khas Tumpang',
+        price: 15000,
+        available: true,
+        image: 'https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=400&auto=format&fit=crop&q=60',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'menu_2',
+        merchantId: 'm1',
+        categoryId: 'cat_m1_1',
+        name: 'Mie Ayam Ceker Bakso',
+        description: 'Mie kenyal dengan potongan ayam berbumbu manis gurih dan ceker empuk',
+        price: 13000,
+        available: true,
+        image: 'https://images.unsplash.com/photo-1612927601601-6638404737ce?w=400&auto=format&fit=crop&q=60',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'menu_3',
+        merchantId: 'm1',
+        categoryId: 'cat_m1_2',
+        name: 'Es Jeruk Manis Segar',
+        description: 'Perasan jeruk peras asli dingin menyegarkan',
+        price: 5000,
+        available: true,
+        image: 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=400&auto=format&fit=crop&q=60',
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'menu_4',
+        merchantId: 'm2',
+        categoryId: 'cat_m2_1',
+        name: 'Paket Ayam Geprek Sambal Bawang + Nasi',
+        description: 'Ayam geprek pedas gurih lengkap dengan nasi hangat dan lalapan',
+        price: 18000,
+        available: true,
+        image: 'https://images.unsplash.com/photo-1626082927389-6cd097cdc6ec?w=400&auto=format&fit=crop&q=60',
+        createdAt: now,
+        updatedAt: now
+      }
+    ];
+
+    this.data.drivers = [
+      {
+        id: 'd1',
+        name: 'Budi Santoso',
+        phone: '081234567893',
+        email: 'driver1@tumpanggo.com',
+        active: true,
+        online: true,
+        latitude: -7.982,
+        longitude: 112.631,
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        id: 'd2',
+        name: 'Agus Pratama',
+        phone: '081234567894',
+        email: 'driver2@tumpanggo.com',
+        active: true,
+        online: true,
+        latitude: -7.985,
+        longitude: 112.635,
+        createdAt: now,
+        updatedAt: now
+      }
+    ];
+
+    for (const d of this.data.drivers) {
+      (d as any).password = hashPassword(d.id + '123');
+    }
   }
 
   public save() {

@@ -7,6 +7,8 @@ import Logo from './Logo.tsx';
 import BannerCarousel from './BannerCarousel.tsx';
 import ShopMarketplaceView from './ShopMarketplaceView.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
+import { safeStorage } from '../utils/safeStorage.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -58,7 +60,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Tumpang Pay States
   const [payBalance, setPayBalance] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_pay_balance');
+      const saved = safeStorage.getItem('tumpang_pay_balance');
       return saved ? Number(saved) : 150000;
     } catch {
       return 150000;
@@ -67,7 +69,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const [payTransactions, setPayTransactions] = useState<any[]>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_pay_transactions');
+      const saved = safeStorage.getItem('tumpang_pay_transactions');
       return saved ? JSON.parse(saved) : [
         { id: 'tx_1', title: 'Top Up via Agen Tumpang', amount: 50000, type: 'in', date: 'Hari ini, 09:30', category: 'topup' },
         { id: 'tx_2', title: 'Pembayaran Bakso Solo Mas Tumpang', amount: 25000, type: 'out', date: 'Kemarin, 13:15', category: 'food' },
@@ -97,7 +99,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [copyrightClicks, setCopyrightClicks] = useState<number>(0);
   const [portalAccessUnlocked, setPortalAccessUnlocked] = useState<boolean>(() => {
     try {
-      const expiry = localStorage.getItem('tumpang_portal_access_until');
+      const expiry = safeStorage.getItem('tumpang_portal_access_until');
       if (expiry) {
         return Date.now() < Number(expiry);
       }
@@ -112,10 +114,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
     const checkExpiry = () => {
       try {
-        const expiry = localStorage.getItem('tumpang_portal_access_until');
+        const expiry = safeStorage.getItem('tumpang_portal_access_until');
         if (!expiry || Date.now() >= Number(expiry)) {
           setPortalAccessUnlocked(false);
-          localStorage.removeItem('tumpang_portal_access_until');
+          safeStorage.removeItem('tumpang_portal_access_until');
         }
       } catch {
         setPortalAccessUnlocked(false);
@@ -134,7 +136,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       if (nextCount >= 10) {
         const TWO_MINUTES_MS = 2 * 60 * 1000;
         const expiryTime = Date.now() + TWO_MINUTES_MS;
-        localStorage.setItem('tumpang_portal_access_until', expiryTime.toString());
+        safeStorage.setItem('tumpang_portal_access_until', expiryTime.toString());
         setPortalAccessUnlocked(true);
         return 0;
       }
@@ -199,7 +201,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [taxiRatingSubmitted, setTaxiRatingSubmitted] = useState<boolean>(false);
   const [taxiTripsHistory, setTaxiTripsHistory] = useState<any[]>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_taxi_trips');
+      const saved = safeStorage.getItem('tumpang_taxi_trips');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -370,7 +372,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           
           setTaxiTripsHistory(prev => {
             const updated = [newTrip, ...prev];
-            localStorage.setItem('tumpang_taxi_trips', JSON.stringify(updated));
+            safeStorage.setItem('tumpang_taxi_trips', JSON.stringify(updated));
             return updated;
           });
         }
@@ -426,7 +428,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Cart state
   const [cart, setCart] = useState<OrderItem[]>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_cart');
+      const saved = safeStorage.getItem('tumpang_cart');
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -434,14 +436,14 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   });
   const [cartMerchantId, setCartMerchantId] = useState<string | null>(() => {
     try {
-      return localStorage.getItem('tumpang_cart_merchant_id') || null;
+      return safeStorage.getItem('tumpang_cart_merchant_id') || null;
     } catch {
       return null;
     }
   });
   const [cartMerchant, setCartMerchant] = useState<Merchant | null>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_cart_merchant');
+      const saved = safeStorage.getItem('tumpang_cart_merchant');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -452,11 +454,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   useEffect(() => {
     try {
-      localStorage.setItem('tumpang_cart', JSON.stringify(cart));
-      if (cartMerchantId) localStorage.setItem('tumpang_cart_merchant_id', cartMerchantId);
-      else localStorage.removeItem('tumpang_cart_merchant_id');
-      if (cartMerchant) localStorage.setItem('tumpang_cart_merchant', JSON.stringify(cartMerchant));
-      else localStorage.removeItem('tumpang_cart_merchant');
+      safeStorage.setItem('tumpang_cart', JSON.stringify(cart));
+      if (cartMerchantId) safeStorage.setItem('tumpang_cart_merchant_id', cartMerchantId);
+      else safeStorage.removeItem('tumpang_cart_merchant_id');
+      if (cartMerchant) safeStorage.setItem('tumpang_cart_merchant', JSON.stringify(cartMerchant));
+      else safeStorage.removeItem('tumpang_cart_merchant');
     } catch (e) {
       console.error(e);
     }
@@ -506,7 +508,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Active Order / Tracking state
   const [activeOrder, setActiveOrder] = useState<Order | null>(() => {
     try {
-      const saved = localStorage.getItem('tumpang_active_order');
+      const saved = safeStorage.getItem('tumpang_active_order');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -516,9 +518,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   useEffect(() => {
     try {
       if (activeOrder) {
-        localStorage.setItem('tumpang_active_order', JSON.stringify(activeOrder));
+        safeStorage.setItem('tumpang_active_order', JSON.stringify(activeOrder));
       } else {
-        localStorage.removeItem('tumpang_active_order');
+        safeStorage.removeItem('tumpang_active_order');
       }
     } catch (e) {
       console.error(e);
@@ -551,18 +553,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   // Active registration tracking states
   const [submittedPartnerId, setSubmittedPartnerId] = useState<string | null>(
-    localStorage.getItem('tumpang_submitted_partner_id')
+    safeStorage.getItem('tumpang_submitted_partner_id')
   );
   const [submittedPartnerEmail, setSubmittedPartnerEmail] = useState<string | null>(
-    localStorage.getItem('tumpang_submitted_partner_email')
+    safeStorage.getItem('tumpang_submitted_partner_email')
   );
   const [activeRegistration, setActiveRegistration] = useState<any>(null);
   const [checkingRegistration, setCheckingRegistration] = useState(false);
 
   // Fetch partner registration status
   const checkMyPartnerRegistration = async () => {
-    const id = localStorage.getItem('tumpang_submitted_partner_id');
-    const email = localStorage.getItem('tumpang_submitted_partner_email');
+    const id = safeStorage.getItem('tumpang_submitted_partner_id');
+    const email = safeStorage.getItem('tumpang_submitted_partner_email');
     if (!id && !email) {
       setActiveRegistration(null);
       return;
@@ -588,8 +590,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const resetPartnerForm = () => {
     // Clear local storage tracking
-    localStorage.removeItem('tumpang_submitted_partner_id');
-    localStorage.removeItem('tumpang_submitted_partner_email');
+    safeStorage.removeItem('tumpang_submitted_partner_id');
+    safeStorage.removeItem('tumpang_submitted_partner_email');
     
     // Clear tracking states
     setSubmittedPartnerId(null);
@@ -787,8 +789,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       if (res.ok) {
         const data = await res.json();
         if (data && data.id) {
-          localStorage.setItem('tumpang_submitted_partner_id', data.id);
-          localStorage.setItem('tumpang_submitted_partner_email', payload.email || payload.phone);
+          safeStorage.setItem('tumpang_submitted_partner_id', data.id);
+          safeStorage.setItem('tumpang_submitted_partner_email', payload.email || payload.phone);
           setSubmittedPartnerId(data.id);
           setSubmittedPartnerEmail(payload.email || payload.phone);
           // Set active registration immediately
@@ -830,7 +832,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [installSuccess, setInstallSuccess] = useState(false);
   const [showPWAInfo, setShowPWAInfo] = useState(false);
   const [dismissedPrompt, setDismissedPrompt] = useState(() => {
-    return localStorage.getItem('tumpang_pwa_dismissed') === 'true';
+    return safeStorage.getItem('tumpang_pwa_dismissed') === 'true';
   });
 
   useEffect(() => {
@@ -887,7 +889,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const dismissInstallPrompt = () => {
     setDismissedPrompt(true);
-    localStorage.setItem('tumpang_pwa_dismissed', 'true');
+    safeStorage.setItem('tumpang_pwa_dismissed', 'true');
   };
 
   // Fetch initial data
@@ -1844,7 +1846,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Pay</span>
                     </button>
 
-                    {/* 3. Tumpang Shop Menu (Segera Hadir) */}
+                    {/* 3. Tumpang Shop Marketplace Menu */}
                     <button
                       id="btn-main-menu-shop"
                       onClick={() => setHomeSubView('shop')}
@@ -1854,8 +1856,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         <div className="w-14 h-14 rounded-2xl bg-[#0F82FF] flex items-center justify-center text-white shadow-lg shadow-blue-500/20 group-hover:scale-105 transition-transform ring-2 ring-blue-500/20">
                           <ShoppingBag className="w-6 h-6 text-white" />
                         </div>
-                        <span className="absolute -top-1.5 -right-2.5 bg-amber-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
-                          Segera
+                        <span className="absolute -top-1.5 -right-2.5 bg-emerald-600 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full shadow-xs uppercase tracking-tight">
+                          Toko
                         </span>
                       </div>
                       <span className="font-extrabold text-[11px] text-slate-800 tracking-tight text-center">Tumpang Shop</span>
@@ -2396,146 +2398,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
           </div>
         )}
 
-        {/* If we are on the Tumpang Shop view (Coming Soon / Segera Hadir) */}
+        {/* Tumpang Shop - Live Marketplace View */}
         {homeSubView === 'shop' && (
-          <div className="flex flex-col gap-5 pb-24 animate-in fade-in duration-200">
-            {/* Back button to return to home */}
-            <button
-              onClick={() => setHomeSubView('main')}
-              className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 py-2.5 px-4 rounded-xl self-start transition-all cursor-pointer active:scale-95 border border-slate-200/80 shadow-xs mb-1"
-            >
-              <ArrowLeft className="w-4 h-4 text-slate-700" />
-              <span>Kembali ke Beranda Utama</span>
-            </button>
-
-            {/* Hero Banner Carousel for Tumpang Shop */}
-            <BannerCarousel altPrefix="Banner Tumpang Shop" />
-
-            {/* Hero Gradient Box */}
-            <div className="relative bg-gradient-to-br from-[#0F82FF] via-blue-600 to-indigo-700 text-white p-6 rounded-3xl shadow-lg shadow-blue-500/20 overflow-hidden">
-              <div className="absolute top-0 right-0 w-36 h-36 bg-white/10 rounded-full -mr-8 -mt-8 blur-md"></div>
-              <div className="absolute left-[-20px] bottom-[-20px] w-32 h-32 bg-blue-400/20 rounded-full blur-2xl"></div>
-              <div className="relative z-10 max-w-[85%]">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="bg-white/20 text-[9px] uppercase font-black tracking-wider px-3 py-1 rounded-full border border-white/10">Tumpang Shop</span>
-                  <span className="bg-amber-400 text-slate-900 text-[9px] uppercase font-black tracking-wider px-2.5 py-0.5 rounded-full shadow-xs">Segera Hadir</span>
-                </div>
-                <h3 className="font-display font-black text-xl sm:text-2xl leading-tight mt-2">Tumpang Shop Segera Hadir!</h3>
-                <p className="text-xs text-blue-50 mt-2 leading-relaxed">
-                  Layanan belanja sembako murah, kebutuhan harian, dan aneka oleh-oleh khas Tumpang langsung diantar cepat sampai ke depan pintu rumah Anda.
-                </p>
-              </div>
-              <div className="absolute right-[-10px] bottom-[-10px] opacity-20 pointer-events-none">
-                <ShoppingBag className="w-36 h-36 rotate-12 text-white" />
-              </div>
-            </div>
-
-            {/* Main Coming Soon Detail Card */}
-            <div className="bg-white border border-blue-100 rounded-3xl p-6 shadow-sm flex flex-col gap-5">
-              <div className="text-center pb-2 border-b border-slate-100">
-                <div className="w-16 h-16 rounded-full bg-blue-50 border-2 border-[#0F82FF] flex items-center justify-center text-3xl mx-auto mb-3 shadow-md shadow-blue-500/10">
-                  🛍️
-                </div>
-                <h4 className="font-display font-black text-base text-slate-800 uppercase tracking-tight">Tumpang Shop</h4>
-                <p className="text-[10px] text-[#0F82FF] font-bold uppercase mt-0.5 tracking-wider">Pusat Belanja Sembako & Oleh-Oleh Lokal</p>
-              </div>
-
-              {/* Progress Simulator */}
-              <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/60 flex flex-col gap-2">
-                <div className="flex justify-between items-center text-[10px] font-extrabold text-slate-500 uppercase tracking-wider">
-                  <span>Progress Persiapan Peluncuran:</span>
-                  <span className="text-blue-700 font-black">88% Selesai</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                  <div className="bg-gradient-to-r from-blue-500 to-indigo-600 h-full rounded-full w-[88%] animate-pulse"></div>
-                </div>
-                <div className="flex justify-between text-[10px] font-medium text-slate-400 mt-0.5">
-                  <span>Tahap Kurasi Produk & Logistik</span>
-                  <span>Est. Peluncuran: Segera</span>
-                </div>
-              </div>
-
-              {/* Feature Highlights */}
-              <div className="flex flex-col gap-3">
-                <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Apa yang Akan Hadir di Tumpang Shop?</h5>
-
-                <div className="flex items-start gap-3 p-3 rounded-2xl hover:bg-blue-50/30 transition-all border border-transparent hover:border-blue-100/50">
-                  <span className="text-lg bg-blue-50 p-2 rounded-xl text-[#0F82FF] shrink-0">🌾</span>
-                  <div>
-                    <h6 className="text-xs font-black text-slate-800">Sembako Murah & Kebutuhan Pokok</h6>
-                    <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">Beras petani lokal, minyak goreng, gula pasir, telur segar, dan bumbu dapur langsung dari Pasar Tumpang dengan harga terjangkau.</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3 rounded-2xl hover:bg-blue-50/30 transition-all border border-transparent hover:border-blue-100/50">
-                  <span className="text-lg bg-blue-50 p-2 rounded-xl text-[#0F82FF] shrink-0">☕</span>
-                  <div>
-                    <h6 className="text-xs font-black text-slate-800">Oleh-Oleh & Produk Khas Tumpang</h6>
-                    <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">Kopi Semeru Dampit, keripik tempe renyah, madu lereng Semeru, dan aneka camilan UMKM asli Tumpang untuk mendukung ekonomi lokal.</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3 rounded-2xl hover:bg-blue-50/30 transition-all border border-transparent hover:border-blue-100/50">
-                  <span className="text-lg bg-blue-50 p-2 rounded-xl text-[#0F82FF] shrink-0">🚚</span>
-                  <div>
-                    <h6 className="text-xs font-black text-slate-800">Pengiriman Cepat & Ongkir Hemat</h6>
-                    <p className="text-[10px] text-slate-500 leading-relaxed mt-0.5">Pesanan diantar langsung oleh kurir terpercaya ke alamat Anda tanpa perlu repot antre atau keluar rumah.</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Waitlist / Notify Me Form */}
-              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 flex flex-col gap-3">
-                {!notifyShopSubmitted ? (
-                  <>
-                    <div className="text-left">
-                      <span className="text-[10px] font-black text-blue-600 bg-blue-100/60 px-2 py-0.5 rounded-md uppercase tracking-wider">MINTA NOTIFIKASI</span>
-                      <h5 className="text-xs font-black text-slate-800 mt-1">Dapatkan Notifikasi Saat Rilis!</h5>
-                      <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">Masukkan nomor WhatsApp Anda untuk menjadi yang pertama menerima voucher diskon dan promo gratis ongkir saat Tumpang Shop resmi meluncur.</p>
-                    </div>
-
-                    <div className="flex flex-col gap-2 mt-1">
-                      <input 
-                        type="tel"
-                        value={notifyShopPhone}
-                        onChange={(e) => setNotifyShopPhone(e.target.value)}
-                        placeholder="Masukkan Nomor WhatsApp Anda (contoh: 0812...)"
-                        className="w-full bg-white border border-slate-200 rounded-xl py-2.5 px-3.5 text-xs font-semibold focus:outline-none focus:border-blue-500 transition-colors"
-                      />
-                      <button
-                        onClick={() => {
-                          if (!notifyShopPhone.trim()) {
-                            alert('Mohon masukkan Nomor WhatsApp Anda yang aktif!');
-                            return;
-                          }
-                          setNotifyShopSubmitted(true);
-                        }}
-                        className="w-full bg-[#0F82FF] hover:bg-blue-700 text-white font-black py-2.5 rounded-xl text-xs uppercase tracking-wider transition-colors shadow-md shadow-blue-500/20 cursor-pointer active:scale-98"
-                      >
-                        Ingatkan Saya Saat Rilis
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-3 flex flex-col items-center gap-2 animate-in zoom-in-95 duration-200">
-                    <span className="text-3xl">🎉</span>
-                    <h5 className="text-xs font-black text-blue-700">Terima Kasih, Anda Sudah Terdaftar!</h5>
-                    <p className="text-[10px] text-slate-500 max-w-xs leading-relaxed">
-                      Nomor WhatsApp Anda ({notifyShopPhone}) berhasil dicatat. Kami akan mengirimkan notifikasi instan serta voucher belanja eksklusif begitu Tumpang Shop resmi dibuka!
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Bottom Return to Home Button */}
-              <button
-                onClick={() => setHomeSubView('main')}
-                className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Kembali ke Beranda Utama</span>
-              </button>
-            </div>
+          <div className="pb-24 animate-in fade-in duration-200">
+            <ShopMarketplaceView onBackToMain={() => setHomeSubView('main')} />
           </div>
         )}
 

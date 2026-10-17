@@ -11,8 +11,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <!-- Favicons & PWA Icons -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=6" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=6" />
@@ -21,25 +19,110 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <!-- PWA Support -->
     <link rel="manifest" href="/manifest.json?v=6" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#15803D" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="tumpangGo" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <style>
+      @keyframes tgoSpin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
   </head>
-  <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
-    <div id="root"></div>
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen m-0 p-0">
+    <div id="root">
+      <!-- High-visibility startup loader (replaced immediately upon React mount) -->
+      <div id="tumpang-initial-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #F4F7F5; font-family: 'Inter', -apple-system, sans-serif; padding: 24px; text-align: center; box-sizing: border-box;">
+        <div style="width: 44px; height: 44px; border: 4px solid #DCFCE7; border-top-color: #15803D; border-radius: 50%; animation: tgoSpin 0.75s linear infinite; margin-bottom: 18px;"></div>
+        <div style="font-weight: 800; font-size: 20px; color: #166534; letter-spacing: -0.02em; margin-bottom: 6px;">tumpangGo</div>
+        <div id="startup-status" style="font-size: 13px; color: #374151; font-weight: 600; margin-bottom: 4px;">Memuat ekosistem aplikasi...</div>
+        <div id="startup-sub" style="font-size: 11px; color: #6B7280;">Menyiapkan modul frontend dan runtime...</div>
+        
+        <div id="startup-error-box" style="display: none; margin-top: 18px; max-width: 520px; width: 100%; padding: 14px; background: #FEF2F2; border: 1px solid #F87171; border-radius: 12px; color: #991B1B; font-size: 11px; text-align: left; font-family: monospace; white-space: pre-wrap; word-break: break-all;"></div>
+        
+        <div id="startup-action-box" style="display: none; margin-top: 16px;">
+          <button onclick="window.location.reload()" style="padding: 8px 18px; background: #15803D; color: white; border: none; border-radius: 10px; font-weight: 700; font-size: 12px; cursor: pointer; box-shadow: 0 2px 6px rgba(21,128,61,0.25);">
+            Muat Ulang Halaman
+          </button>
+        </div>
+      </div>
+    </div>
+
     <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then(reg => console.log('PWA Service Worker terdaftar dengan sukses!', reg.scope))
-            .catch(err => console.log('Registrasi Service Worker gagal: ', err));
-        });
+      // Global runtime error monitor to display diagnostics instead of blank screens
+      window.__TUMPANG_STARTUP = { stage: 'HTML_PARSED', time: Date.now() };
+
+      window.addEventListener('error', function(e) {
+        console.error('[tumpangGo Runtime Error Captured]:', e);
+        var errBox = document.getElementById('startup-error-box');
+        var actBox = document.getElementById('startup-action-box');
+        var sub = document.getElementById('startup-sub');
+        if (errBox) {
+          errBox.style.display = 'block';
+          errBox.textContent = 'Runtime Exception:\n' + (e.message || e.error || 'Unknown error') + '\nFile: ' + (e.filename || 'unknown') + ':' + (e.lineno || 0);
+        }
+        if (actBox) actBox.style.display = 'block';
+        if (sub) {
+          sub.textContent = 'Terjadi kendala memuat modul script.';
+          sub.style.color = '#DC2626';
+        }
+      });
+
+      window.addEventListener('unhandledrejection', function(e) {
+        console.warn('[tumpangGo Promise Rejection Captured]:', e.reason);
+      });
+
+      // Watchdog: If after 3.5s React has not mounted, reveal action button
+      setTimeout(function() {
+        var loader = document.getElementById('tumpang-initial-loader');
+        var actBox = document.getElementById('startup-action-box');
+        var sub = document.getElementById('startup-sub');
+        if (loader && actBox) {
+          actBox.style.display = 'block';
+          if (sub) {
+            sub.textContent = 'Memuat modul memerlukan waktu lebih lama dari biasanya...';
+          }
+        }
+      }, 3500);
+
+      // Safe ServiceWorker Cleanup for Development / Preview Iframe
+      try {
+        if ('serviceWorker' in navigator) {
+          var isDevOrPreview = window.location.hostname === 'localhost' ||
+                               window.location.hostname === '127.0.0.1' ||
+                               window.location.hostname.indexOf('run.app') !== -1 ||
+                               window.location.port === '3000';
+          if (isDevOrPreview) {
+            navigator.serviceWorker.getRegistrations()
+              .then(function(registrations) {
+                if (registrations && registrations.length > 0) {
+                  for (var i = 0; i < registrations.length; i++) {
+                    registrations[i].unregister().catch(function() {});
+                  }
+                  console.log('[tumpangGo Dev] Active Service Workers unregistered.');
+                }
+              })
+              .catch(function(err) {
+                // Silently ignore restricted iframe security errors
+              });
+
+            if ('caches' in window) {
+              caches.keys()
+                .then(function(keys) {
+                  keys.forEach(function(k) { caches.delete(k).catch(function() {}); });
+                })
+                .catch(function() {});
+            }
+          } else {
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js').catch(function() {});
+            });
+          }
+        }
+      } catch (swErr) {
+        // Silently bypass in sandboxed iframes
       }
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

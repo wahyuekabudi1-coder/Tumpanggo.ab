@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Driver, Order, OrderStatus } from '../types.ts';
 import MapPicker from './MapPicker.tsx';
 import { compressImage } from '../utils/imageCompressor.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   Navigation, CheckCircle2, ShoppingBag, Eye, Phone, MapPin, ClipboardList, 
   User, ToggleLeft, ToggleRight, LogOut, Check, ChevronRight, X, Image

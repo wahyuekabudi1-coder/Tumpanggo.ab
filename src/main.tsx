@@ -1,34 +1,28 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 
-// Transparent API authentication interceptor
-const originalFetch = window.fetch;
-window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-  const token = localStorage.getItem('tumpang_auth_token');
-  const email = localStorage.getItem('tumpang_auth_email');
+// Mark JS execution milestone
+if (typeof window !== 'undefined') {
+  (window as any).__TUMPANG_STARTUP = { stage: 'JS_INITIALIZED', time: Date.now() };
+  const statusEl = document.getElementById('startup-status');
+  const subEl = document.getElementById('startup-sub');
+  if (statusEl) statusEl.textContent = 'Menginisialisasi React...';
+  if (subEl) subEl.textContent = 'Merender komponen antarmuka tumpangGo...';
+}
 
-  const isApiRequest = typeof input === 'string' ? input.startsWith('/api') : input instanceof URL ? input.pathname.startsWith('/api') : false;
-
-  if (isApiRequest && (token || email)) {
-    const headers = new Headers(init?.headers || {});
-    if (token && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${token}`);
-    }
-    if (token && !headers.has('x-auth-token')) {
-      headers.set('x-auth-token', token);
-    }
-    if (email && !headers.has('x-auth-email')) {
-      headers.set('x-auth-email', email);
-    }
-    return originalFetch(input, { ...init, headers });
-  }
-  return originalFetch(input, init);
-};
-
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary fallbackTitle="tumpangGo - Kendala Tampilan">
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
+  console.log('[tumpangGo Boot] React createRoot.render executed.');
+} else {
+  console.error('Fatal: Failed to find #root element in document.');
+}

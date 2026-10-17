@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tumpang-food-v6';
+const CACHE_NAME = 'tumpang-food-v7';
 const ASSETS = [
   '/',
   '/index.html',
@@ -10,7 +10,9 @@ const ASSETS = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
+      return cache.addAll(ASSETS).catch((err) => {
+        console.warn('[SW] Cache addAll skipped:', err);
+      });
     })
   );
   self.skipWaiting();
@@ -32,17 +34,40 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event (Network First, falling back to Cache)
+// Fetch Event (Network First, with strict bypass for dev modules and APIs)
 self.addEventListener('fetch', (event) => {
-  // Let browser handle non-GET or cross-origin requests
-  if (event.request.method !== 'GET' || !event.request.url.startsWith(self.location.origin)) {
+  const url = event.request.url;
+
+  // Immediately bypass non-GET requests
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
+  // Bypass any cross-origin requests
+  if (!url.startsWith(self.location.origin)) {
+    return;
+  }
+
+  // Bypass API endpoints, WebSocket, and development server internals
+  if (
+    url.includes('/api/') ||
+    url.includes('/@vite') ||
+    url.includes('/@fs') ||
+    url.includes('/__vite') ||
+    url.includes('/src/') ||
+    url.includes('.tsx') ||
+    url.includes('.ts') ||
+    url.includes('node_modules') ||
+    self.location.hostname.includes('run.app') ||
+    self.location.hostname === 'localhost' ||
+    self.location.hostname === '127.0.0.1'
+  ) {
     return;
   }
 
   event.respondWith(
     fetch(event.request)
       .then((networkResponse) => {
-        // Cache dynamic assets if they are successful
         if (networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseClone = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -52,12 +77,10 @@ self.addEventListener('fetch', (event) => {
         return networkResponse;
       })
       .catch(() => {
-        // Fallback to cache if network request fails
         return caches.match(event.request).then((cachedResponse) => {
           if (cachedResponse) {
             return cachedResponse;
           }
-          // Fallback for offline HTML if index.html
           if (event.request.headers.get('accept')?.includes('text/html')) {
             return caches.match('/');
           }

@@ -19,7 +19,7 @@ export { app };
 async function startServer() {
   const PORT = foodConfig.port;
 
-  // Initialize and synchronize isolated Tumpang Food database
+  // Initialize and synchronize isolated Tumpang Food database asynchronously
   foodDb.init().catch(err => {
     console.error('[TumpangFood Server] Failed to synchronize Firestore on boot:', err);
   });
@@ -31,14 +31,37 @@ async function startServer() {
   if (process.env.NODE_ENV !== 'production' || !hasDist) {
     console.log('[TumpangFood Server] Starting Vite development server middleware...');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: 'spa',
     });
+    
+    // Mount Vite dev server middlewares
     app.use(vite.middlewares);
+
+    // Explicit fallback handler for all client-side navigation routes
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      if (url.startsWith('/api')) {
+        return next();
+      }
+      try {
+        const indexPath = path.resolve(process.cwd(), 'index.html');
+        let template = fs.readFileSync(indexPath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
   } else {
     console.log('[TumpangFood Server] Serving production static files from dist...');
     app.use(express.static(distPath));
     app.get('*', (req, res) => {
+      if (req.originalUrl.startsWith('/api')) {
+        res.status(404).json({ error: 'Endpoint API tidak ditemukan' });
+        return;
+      }
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

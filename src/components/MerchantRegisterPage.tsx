@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { safeStorage } from '../utils/safeStorage.ts';
 import Logo from './Logo.tsx';
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
@@ -96,7 +97,7 @@ export default function MerchantRegisterPage({ onBackToHome, onGoToLogin }: Merc
 
       setSuccessData(data.merchant);
       const authIdentifier = data.merchant.email || data.merchant.phone || data.merchant.id;
-      localStorage.setItem('tumpang_auth_email', authIdentifier);
+      safeStorage.setItem('tumpang_auth_email', authIdentifier);
     } catch (err: any) {
       console.error('Merchant registration error:', err);
       setError(err.message || 'Terjadi kesalahan saat pendaftaran toko.');

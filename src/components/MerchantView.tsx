@@ -12,6 +12,7 @@ import {
   Merchant, MenuItem, Category, Order, OrderStatus, Settlement, SettlementStatus 
 } from '../types.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   Store, ClipboardList, Utensils, TrendingUp, Calendar, Clock, DollarSign, 
   Settings, LogOut, Plus, Check, X, Edit, Trash2, CheckSquare, Layers,

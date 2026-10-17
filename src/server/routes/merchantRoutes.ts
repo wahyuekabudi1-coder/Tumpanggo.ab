@@ -141,3 +141,4 @@ merchantRouter.get('/:merchantId/orders', requireMerchantOwner('merchantId'), (r
 merchantRouter.get('/:merchantId/settlements', requireMerchantOwner('merchantId'), (req: Request, res: Response) => {
   res.json(foodDb.getSettlementsByMerchant(req.params.merchantId));
 });
+

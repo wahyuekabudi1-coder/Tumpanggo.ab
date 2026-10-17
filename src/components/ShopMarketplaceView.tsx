@@ -13,6 +13,7 @@ import {
   ShopPaymentStatus, ShopOrderStatus 
 } from '../types/shop';
 import BannerCarousel from './BannerCarousel';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import { 
   Search, ShoppingBag, Plus, Minus, Trash2, X, ArrowLeft, 
   AlertCircle, RefreshCw, Check, Package, Tag, Info, Layers, 
@@ -78,7 +79,7 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
   const [recipientAddress, setRecipientAddress] = useState<string>('');
   const [recipientDistrict, setRecipientDistrict] = useState<string>(DISTRICT_OPTIONS[0]);
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
-  const [shippingMethod, setShippingMethod] = useState<'INSTANT' | 'REGULAR' | 'PICKUP' | 'CHINA_AIR_EXPRESS'>('INSTANT');
+  const [shippingMethod, setShippingMethod] = useState<'INSTANT' | 'REGULAR' | 'PICKUP' | 'EXPEDITION_REGULAR' | 'CHINA_AIR_EXPRESS' | 'CHINA_SEA_STANDARD'>('INSTANT');
   const [clientRequestId, setClientRequestId] = useState<string>(() => `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
   const [isSubmittingOrder, setIsSubmittingOrder] = useState<boolean>(false);
   const [orderError, setOrderError] = useState<string | null>(null);

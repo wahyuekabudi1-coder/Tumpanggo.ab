@@ -79,6 +79,7 @@ async function testMultiInstance() {
   console.log('\n====================================================');
   console.log('🏁 SELESAI PENGUJIAN MULTI-INSTANCE');
   console.log('====================================================\n');
+  process.exit(0);
 }
 
 testMultiInstance().catch(err => {
