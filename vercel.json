@@ -1,0 +1,25 @@
+{
+  "version": 2,
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "cleanUrls": true,
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "{api/_app.cjs*,firebase-applet-config.json,tumpang_food_db.json,tumpang_shop_db.json,src/server/**}"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/((?!api/|assets/|.*\\.(?:js|css|json|png|jpg|jpeg|gif|ico|svg|webp)).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

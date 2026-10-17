@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+bun.lock
+
+# Environment Variables & Secrets (CRITICAL)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*service*account*.json
+*service-account*.json
+*firebase-adminsdk*.json
+*credentials*.json
+
+# Local runtime & database cache files
+tumpang_db.json
+tumpang_food_db.json
+tumpang_food_db.json.backup.json
+tumpang_shop_db.json
+tumpang*_db*.json
+*.backup.json
+
+# Build outputs & Bundles
+dist/
+api/_app.cjs
+api/_app.cjs.map
+server.cjs
+server.cjs.map
+.vercel/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo

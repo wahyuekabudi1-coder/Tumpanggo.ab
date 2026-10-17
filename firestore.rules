@@ -1,0 +1,86 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Tumpang Food Production Firestore Security Rules
+    // ARCHITECTURAL DESIGN:
+    // All client interactions (Customer, Merchant, Driver, Admin) are securely routed
+    // through the Express Serverless / Node API backend (/api/*) which utilizes the
+    // Firebase Admin SDK with server-side authentication, RBAC, input validation, and audit logging.
+    //
+    // Firebase Admin SDK operates with administrative IAM privileges, bypassing these client security rules.
+    // Direct, untrusted client connections from web browsers are completely DENIED by default
+    // to prevent unauthorized price alterations, credential exposure, and settlement tampering.
+
+    // 1. Default Global Deny: Rejects all direct browser/client reads and writes
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Collections explicitly secured against direct browser manipulation
+    match /systemConfig/{configId} {
+      allow read, write: if false;
+    }
+
+    match /merchants/{merchantId} {
+      allow read, write: if false;
+    }
+
+    match /categories/{categoryId} {
+      allow read, write: if false;
+    }
+
+    match /menuItems/{menuItemId} {
+      allow read, write: if false;
+    }
+
+    match /drivers/{driverId} {
+      allow read, write: if false;
+    }
+
+    match /orders/{orderId} {
+      allow read, write: if false;
+    }
+
+    match /settlements/{settlementId} {
+      allow read, write: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if false;
+    }
+
+    match /licenses/{licenseKey} {
+      allow read, write: if false;
+    }
+
+    match /partnerRegistrations/{registrationId} {
+      allow read, write: if false;
+    }
+
+    // 3. Isolated Tumpang Shop Collections (Denied from direct untrusted browser access)
+    match /shop_config/{configId} {
+      allow read, write: if false;
+    }
+
+    match /shop_categories/{categoryId} {
+      allow read, write: if false;
+    }
+
+    match /shop_products/{productId} {
+      allow read, write: if false;
+    }
+
+    match /shop_orders/{orderId} {
+      allow read, write: if false;
+    }
+
+    match /shop_audit_logs/{logId} {
+      allow read, write: if false;
+    }
+
+    match /shop_shipments/{shipmentId} {
+      allow read, write: if false;
+    }
+  }
+}

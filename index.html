@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>tumpangGo - Pesan Makanan Lokal Tumpang</title>
+    <meta name="description" content="Platform Pemesanan Makanan Lokal Berbasis Website dan Progressive Web App (PWA) yang menghubungkan Customer, Merchant, Driver, dan Admin dalam satu sistem terintegrasi." />
+    <meta property="og:title" content="tumpangGo - Pesan Makanan Lokal Tumpang" />
+    <meta property="og:description" content="Platform Pemesanan Makanan Lokal Berbasis Website dan Progressive Web App (PWA) yang menghubungkan Customer, Merchant, Driver, dan Admin dalam satu sistem terintegrasi." />
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <!-- Favicons & PWA Icons -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=6" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png?v=6" />
+    <link rel="shortcut icon" href="/favicon.png?v=6" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <!-- PWA Support -->
+    <link rel="manifest" href="/manifest.json?v=6" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="tumpangGo" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  </head>
+  <body class="bg-slate-50 text-slate-900 font-sans antialiased min-h-screen">
+    <div id="root"></div>
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('PWA Service Worker terdaftar dengan sukses!', reg.scope))
+            .catch(err => console.log('Registrasi Service Worker gagal: ', err));
+        });
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  /* Primary Tumpang Go - Deep Green / Forest Green matching the logo */
+  --color-primary-50: #F0FDF4;
+  --color-primary-100: #DCFCE7;
+  --color-primary-500: #15803D;
+  --color-primary-600: #166534;
+  --color-primary-700: #14532D;
+  
+  --color-rose-50: #F0FDF4;
+  --color-rose-100: #DCFCE7;
+  --color-rose-200: #BBF7D0;
+  --color-rose-300: #86EFAC;
+  --color-rose-500: #15803D;
+  --color-rose-600: #166534;
+  --color-rose-700: #14532D;
+  --color-rose-800: #115E59;
+  --color-rose-900: #134E5E;
+
+  --color-red-500: #EF4444;
+  --color-red-600: #DC2626;
+  --color-red-700: #B91C1C;
+
+  /* Accent / Promo - Warm Gold / Amber from the logo */
+  --color-yellow-400: #FBBF24;
+  --color-yellow-500: #F59E0B;
+
+  /* Success - Hijau #22C55E */
+  --color-emerald-500: #22C55E;
+  --color-emerald-600: #16A34A;
+  --color-emerald-700: #15803D;
+
+  /* Info - Biru #3B82F6 */
+  --color-blue-500: #3B82F6;
+  --color-blue-600: #2563EB;
+
+  /* Error - Merah #EF4444 */
+  --color-error-500: #EF4444;
+
+  /* Background Website - Clean Minty Light Green Off-white */
+  --color-slate-50: #F4F7F5;
+  --color-slate-100: #EBF1EC;
+
+  /* Border - Abu Muda #E2E8F0 */
+  --color-slate-200: #E2E8F0;
+
+  /* Text - Abu Gelap #1E293B */
+  --color-slate-900: #0F172A;
+  --color-slate-850: #1E293B;
+  --color-slate-800: #1E293B;
+  --color-slate-700: #334155;
+  --color-slate-600: #475569;
+  --color-slate-500: #64748B;
+  --color-slate-400: #94A3B8;
+  
+  --color-secondary-500: #3B82F6;
+  --color-secondary-600: #2563EB;
+}
+
+body {
+  background-color: #F4F7F5;
+  color: #0F172A;
+}
+
+/* Leaflet Override Styles */
+.leaflet-container {
+  font-family: inherit;
+  border-radius: 0.5rem;
+}
+
+.leaflet-bar {
+  border: none !important;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1) !important;
+}
+
+.leaflet-bar a {
+  background-color: white !important;
+  color: #1e293b !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
+.leaflet-bar a:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}

@@ -1,0 +1,354 @@
+{
+  "entities": {
+    "SystemConfig": {
+      "title": "SystemConfig",
+      "description": "Global configuration settings for the system",
+      "type": "object",
+      "properties": {
+        "serviceFee": { "type": "number", "description": "Flat service fee for each transaction" },
+        "deliveryFeePerKm": { "type": "number", "description": "Delivery fee per kilometer" },
+        "defaultDeliveryFee": { "type": "number", "description": "Default delivery fee" },
+        "commissionPercent": { "type": "number", "description": "Merchant commission percentage" },
+        "assignmentMode": { "type": "string", "enum": ["AUTOMATIC", "MANUAL"], "description": "Driver assignment mode" },
+        "qrisImage": { "type": "string", "description": "URL of the QRIS payment image" },
+        "systemOpen": { "type": "boolean", "description": "Whether the system is actively open for business" }
+      },
+      "required": ["serviceFee", "deliveryFeePerKm", "defaultDeliveryFee", "commissionPercent", "assignmentMode", "qrisImage", "systemOpen"]
+    },
+    "Merchant": {
+      "title": "Merchant",
+      "description": "An UMKM merchant registered in the system",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "name": { "type": "string", "description": "Merchant business name" },
+        "ownerName": { "type": "string", "description": "Owner's full name" },
+        "phone": { "type": "string", "description": "Owner's WhatsApp/phone number" },
+        "address": { "type": "string", "description": "Physical address" },
+        "latitude": { "type": "number", "description": "GPS latitude coordinate" },
+        "longitude": { "type": "number", "description": "GPS longitude coordinate" },
+        "openTime": { "type": "string", "description": "Daily open time" },
+        "closeTime": { "type": "string", "description": "Daily close time" },
+        "bankName": { "type": "string", "description": "Bank name for settlements" },
+        "bankAccount": { "type": "string", "description": "Bank account number" },
+        "bankHolder": { "type": "string", "description": "Bank account holder name" },
+        "active": { "type": "boolean", "description": "Whether the merchant is open/active" },
+        "rating": { "type": "number", "description": "Average user rating" },
+        "cookTimeEstimate": { "type": "string", "description": "Estimated cooking duration" },
+        "image": { "type": "string", "description": "Banner image URL" },
+        "description": { "type": "string", "description": "Brief description of menu offering" },
+        "email": { "type": "string", "description": "Registered email of owner for verification" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "updatedAt": { "type": "string", "description": "Update timestamp ISO string" },
+        "isPremium": { "type": "boolean", "description": "Whether the merchant has active premium contract features enabled" },
+        "licenseKey": { "type": "string", "description": "Activated contract license key" },
+        "licenseExpiresAt": { "type": "string", "description": "Timestamp when the contract expires" },
+        "preOrderOnly": { "type": "boolean", "description": "Whether this store operates on pre-order only" },
+        "preOrderMinAmount": { "type": "number", "description": "Minimum transaction subtotal for pre-order checkout" },
+        "preOrderLeadDays": { "type": "number", "description": "Advance ordering notice required in days" }
+      },
+      "required": ["id", "name", "ownerName", "phone", "address", "latitude", "longitude", "openTime", "closeTime", "bankName", "bankAccount", "bankHolder", "active", "rating", "cookTimeEstimate", "image", "description", "createdAt", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Food category of a specific merchant",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "merchantId": { "type": "string", "description": "Parent merchant ID" },
+        "name": { "type": "string", "description": "Category name" },
+        "orderIndex": { "type": "number", "description": "Sorting priority index" }
+      },
+      "required": ["id", "merchantId", "name", "orderIndex"]
+    },
+    "MenuItem": {
+      "title": "MenuItem",
+      "description": "A food/beverage item on a merchant's menu",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "merchantId": { "type": "string", "description": "Parent merchant ID" },
+        "categoryId": { "type": "string", "description": "Associated category ID" },
+        "name": { "type": "string", "description": "Menu item name" },
+        "description": { "type": "string", "description": "Menu item description" },
+        "price": { "type": "number", "description": "Item price in Rupiah" },
+        "available": { "type": "boolean", "description": "Availability status" },
+        "image": { "type": "string", "description": "Item photo URL" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "updatedAt": { "type": "string", "description": "Update timestamp ISO string" }
+      },
+      "required": ["id", "merchantId", "categoryId", "name", "description", "price", "available", "image", "createdAt", "updatedAt"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "An internal delivery courier",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "name": { "type": "string", "description": "Driver full name" },
+        "phone": { "type": "string", "description": "Driver's phone number" },
+        "email": { "type": "string", "description": "Driver's registered email for access control" },
+        "active": { "type": "boolean", "description": "Registration active status" },
+        "online": { "type": "boolean", "description": "Online availability status" },
+        "latitude": { "type": "number", "description": "Current GPS latitude" },
+        "longitude": { "type": "number", "description": "Current GPS longitude" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "updatedAt": { "type": "string", "description": "Update timestamp ISO string" }
+      },
+      "required": ["id", "name", "phone", "active", "online", "latitude", "longitude", "createdAt", "updatedAt"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "A customer order transaction",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "uniqueCode": { "type": "number", "description": "3-digit verification suffix (001-099)" },
+        "total": { "type": "number", "description": "Total payment in Rupiah including fees and uniqueCode" },
+        "status": { "type": "string", "description": "Current state of order" },
+        "merchantId": { "type": "string", "description": "Merchant ID being ordered from" },
+        "merchantName": { "type": "string", "description": "Merchant name copy" },
+        "customerName": { "type": "string", "description": "Customer display name" },
+        "customerPhone": { "type": "string", "description": "Customer phone number" },
+        "deliveryAddress": { "type": "string", "description": "Delivery address destination" },
+        "deliveryDetails": { "type": "string", "description": "Specific delivery instructions" },
+        "landmark": { "type": "string", "description": "Nearby landmark detail" },
+        "latitude": { "type": "number", "description": "Destination latitude" },
+        "longitude": { "type": "number", "description": "Destination longitude" },
+        "subtotal": { "type": "number", "description": "Sum of menu item prices * qty" },
+        "deliveryFee": { "type": "number", "description": "Calculated delivery fee" },
+        "serviceFee": { "type": "number", "description": "Calculated service fee" },
+        "driverId": { "type": "string", "description": "Assigned driver ID" },
+        "driverName": { "type": "string", "description": "Assigned driver name copy" },
+        "paymentProof": { "type": "string", "description": "Base64 or URL of QRIS payment proof image" },
+        "deliveryProof": { "type": "string", "description": "Base64 or URL of delivery proof photo" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "updatedAt": { "type": "string", "description": "Update timestamp ISO string" },
+        "paymentExpiresAt": { "type": "string", "description": "Payment window expiration timestamp" },
+        "isSettled": { "type": "boolean", "description": "Whether this order has been included in a completed settlement batch" },
+        "preOrderDate": { "type": "string", "description": "Requested delivery/pickup date for pre-order" }
+      },
+      "required": ["id", "uniqueCode", "total", "status", "merchantId", "merchantName", "customerName", "customerPhone", "deliveryAddress", "deliveryDetails", "landmark", "latitude", "longitude", "subtotal", "deliveryFee", "serviceFee", "createdAt", "updatedAt", "paymentExpiresAt"]
+    },
+    "Settlement": {
+      "title": "Settlement",
+      "description": "Commission and disbursement payout record for UMKM",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "merchantId": { "type": "string", "description": "Merchant recipient ID" },
+        "merchantName": { "type": "string", "description": "Merchant business name" },
+        "orderCount": { "type": "number", "description": "Number of completed orders bundled in this settlement" },
+        "totalSales": { "type": "number", "description": "Gross sales from food items (subtotal sum)" },
+        "totalCommission": { "type": "number", "description": "Calculated commission deduction" },
+        "amountToPay": { "type": "number", "description": "Net payout amount to pay merchant (totalSales - totalCommission)" },
+        "status": { "type": "string", "enum": ["WAITING_CONFIRMATION", "SETTLEMENT_COMPLETED"], "description": "Settlement status" },
+        "bankName": { "type": "string", "description": "Bank name copy" },
+        "bankAccount": { "type": "string", "description": "Bank account copy" },
+        "bankHolder": { "type": "string", "description": "Bank account holder copy" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" },
+        "paidAt": { "type": "string", "description": "Payout confirmation timestamp" }
+      },
+      "required": ["id", "merchantId", "merchantName", "orderCount", "totalSales", "totalCommission", "amountToPay", "status", "bankName", "bankAccount", "bankHolder", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Administrative and transactional trace audit log",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier" },
+        "action": { "type": "string", "description": "Shorthand identifier for the action (e.g. LOGIN)" },
+        "userId": { "type": "string", "description": "Initiator ID (admin, merchant_id, driver_id, etc.)" },
+        "role": { "type": "string", "enum": ["ADMIN", "MERCHANT", "DRIVER", "SYSTEM", "CUSTOMER"], "description": "Initiator role" },
+        "details": { "type": "string", "description": "Explanatory logging details text" },
+        "createdAt": { "type": "string", "description": "Creation timestamp ISO string" }
+      },
+      "required": ["id", "action", "userId", "role", "details", "createdAt"]
+    },
+    "LicenseKey": {
+      "title": "LicenseKey",
+      "description": "A pre-order contract license subscription key",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "description": "The unique license string" },
+        "durationDays": { "type": "number", "description": "Active subscription span in days" },
+        "status": { "type": "string", "enum": ["UNUSED", "USED"], "description": "Redemption status of the key" },
+        "usedByMerchantId": { "type": "string", "description": "Merchant ID that redeemed this key" },
+        "usedByMerchantName": { "type": "string", "description": "Name of merchant who used this key" },
+        "usedAt": { "type": "string", "description": "Redemption timestamp ISO string" },
+        "createdAt": { "type": "string", "description": "Generation timestamp ISO string" }
+      },
+      "required": ["key", "durationDays", "status", "createdAt"]
+    },
+    "ShopConfig": {
+      "title": "ShopConfig",
+      "description": "Configuration settings specifically for Tumpang Shop marketplace",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "storeName": { "type": "string" },
+        "storeAddress": { "type": "string" },
+        "storePhone": { "type": "string" },
+        "isOpen": { "type": "boolean" },
+        "qrisImage": { "type": "string" },
+        "defaultDeliveryFee": { "type": "number" },
+        "serviceFee": { "type": "number" },
+        "minOrderAmount": { "type": "number" }
+      },
+      "required": ["id", "storeName", "isOpen", "defaultDeliveryFee", "serviceFee", "minOrderAmount"]
+    },
+    "ShopCategory": {
+      "title": "ShopCategory",
+      "description": "Marketplace product category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "orderIndex": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "slug", "orderIndex", "isActive", "createdAt", "updatedAt"]
+    },
+    "ShopProduct": {
+      "title": "ShopProduct",
+      "description": "Retail marketplace item with SKU, variations, and stock",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sku": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "categoryId": { "type": "string" },
+        "price": { "type": "number" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "sku", "name", "categoryId", "price", "stock", "unit", "isActive", "createdAt", "updatedAt"]
+    },
+    "ShopOrder": {
+      "title": "ShopOrder",
+      "description": "Marketplace grocery customer order with isolated payment status and order status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "deliveryAddress": { "type": "string" },
+        "subtotal": { "type": "number" },
+        "deliveryFee": { "type": "number" },
+        "serviceFee": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentStatus": { "type": "string" },
+        "orderStatus": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "customerName", "customerPhone", "deliveryAddress", "subtotal", "total", "paymentStatus", "orderStatus", "createdAt", "updatedAt"]
+    },
+    "ShopShipment": {
+      "title": "ShopShipment",
+      "description": "Logistics and shipping lifecycle tracking record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "orderId": { "type": "string" },
+        "orderNumber": { "type": "string" },
+        "scope": { "type": "string" },
+        "courierCode": { "type": "string" },
+        "courierName": { "type": "string" },
+        "trackingNumber": { "type": "string" },
+        "status": { "type": "string" },
+        "statusLabel": { "type": "string" },
+        "originCity": { "type": "string" },
+        "destinationCity": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "orderId", "orderNumber", "scope", "courierCode", "trackingNumber", "status", "createdAt", "updatedAt"]
+    },
+    "ShopAuditLog": {
+      "title": "ShopAuditLog",
+      "description": "Audit trail log for Tumpang Shop administrative and customer operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" },
+        "userId": { "type": "string" },
+        "role": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "action", "userId", "role", "details", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/systemConfig/config_1": {
+      "schema": "SystemConfig",
+      "description": "Singleton configuration document"
+    },
+    "/merchants/{merchantId}": {
+      "schema": "Merchant",
+      "description": "Merchants registered in the system"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Menu categories grouped under merchants"
+    },
+    "/menuItems/{menuItemId}": {
+      "schema": "MenuItem",
+      "description": "Items of food and beverage"
+    },
+    "/drivers/{driverId}": {
+      "schema": "Driver",
+      "description": "Online internal courier register"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Food delivery orders"
+    },
+    "/settlements/{settlementId}": {
+      "schema": "Settlement",
+      "description": "Administrative disbursement settlement records"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Diagnostic and transaction logs"
+    },
+    "/licenses/{licenseKey}": {
+      "schema": "LicenseKey",
+      "description": "Premium contract licenses for stores"
+    },
+    "/shop_config/main": {
+      "schema": "ShopConfig",
+      "description": "Tumpang Shop singleton configuration"
+    },
+    "/shop_categories/{categoryId}": {
+      "schema": "ShopCategory",
+      "description": "Tumpang Shop categories"
+    },
+    "/shop_products/{productId}": {
+      "schema": "ShopProduct",
+      "description": "Tumpang Shop products"
+    },
+    "/shop_orders/{orderId}": {
+      "schema": "ShopOrder",
+      "description": "Tumpang Shop customer orders"
+    },
+    "/shop_shipments/{shipmentId}": {
+      "schema": "ShopShipment",
+      "description": "Tumpang Shop parcel tracking and shipping lifecycles"
+    },
+    "/shop_audit_logs/{logId}": {
+      "schema": "ShopAuditLog",
+      "description": "Tumpang Shop administrative and audit trails"
+    }
+  }
+}
