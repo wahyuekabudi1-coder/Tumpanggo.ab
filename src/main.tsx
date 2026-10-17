@@ -4,6 +4,11 @@ import App from './App.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import './index.css';
 
+// Runtime Safety Note:
+// Do NOT assign or define properties on `window.fetch` or `globalThis.fetch`.
+// In Google AI Studio sandboxed iframes, `window.fetch` has only a getter and throws TypeError if assigned.
+// All API calls must use `apiFetch` from `./utils/apiClient.ts`.
+
 // Mark JS execution milestone
 if (typeof window !== 'undefined') {
   (window as any).__TUMPANG_STARTUP = { stage: 'JS_INITIALIZED', time: Date.now() };

@@ -106,6 +106,11 @@ export interface ShopOrder {
   paymentExpiresAt: string;
   cancelReason?: string;
   clientRequestId?: string; // Idempotency key preventing duplicate submission
+  paymentMethod?: 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+  artopayPaymentId?: string;
+  artopayCheckoutUrl?: string;
+  artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
+  artopayExpiredAt?: string;
   shipment?: ShopShipment;
   createdAt: string;
   updatedAt: string;

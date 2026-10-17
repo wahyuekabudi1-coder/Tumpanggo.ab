@@ -17,7 +17,8 @@ import {
   ShieldCheck, CheckSquare, ClipboardList, Store, Users, DollarSign, Settings, 
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
   UserPlus, Search, ArrowUpRight, Clock, Phone, MapPin, Building,
-  CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut
+  CheckCircle2, XCircle, ChevronRight, Sliders, ArrowDownRight, Wallet, LogOut,
+  QrCode, ExternalLink
 } from 'lucide-react';
 
 interface AdminViewProps {
@@ -241,6 +242,21 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const syncArtopayStatus = async (orderId: string) => {
+    try {
+      const res = await fetch(`/api/artopay/status/${orderId}?serviceType=FOOD`);
+      const data = await res.json();
+      if (data.isPaid) {
+        alert('Status terbaru dari ArtoPay: LUNAS! Data pesanan telah diperbarui otomatis.');
+      } else {
+        alert(`Status ArtoPay: ${data.artopayStatus || 'PENDING'}. Pembayaran belum diselesaikan atau masih diproses.`);
+      }
+      fetchAdminData();
+    } catch (e: any) {
+      alert(`Gagal memeriksa status gateway: ${e.message}`);
     }
   };
 
@@ -618,9 +634,61 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
                           </div>
                         </div>
 
+                        {/* ArtoPay Gateway Information (if QRIS Dinamis) */}
+                        {(order.paymentMethod === 'ARTOPAY_QRIS' || order.artopayPaymentId) && (
+                          <div className="pt-2">
+                            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black text-emerald-800 uppercase tracking-wider flex items-center gap-1">
+                                  <QrCode className="w-3.5 h-3.5 text-emerald-600" />
+                                  QRIS Dinamis ArtoPay
+                                </span>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                  order.status === OrderStatus.PAYMENT_VERIFIED || order.artopayStatus === 'SUCCESS'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {order.artopayStatus || 'PENDING'}
+                                </span>
+                              </div>
+
+                              <div className="text-[11px] text-slate-600 space-y-0.5">
+                                <div className="flex justify-between font-mono">
+                                  <span className="text-slate-500 font-sans">Payment Intent ID:</span>
+                                  <span className="font-bold text-slate-800 break-all">{order.artopayPaymentId || '-'}</span>
+                                </div>
+                                {order.artopayCheckoutUrl && (
+                                  <div className="pt-1 flex items-center justify-between gap-2">
+                                    <a
+                                      href={order.artopayCheckoutUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:text-emerald-800 underline"
+                                    >
+                                      <ExternalLink className="w-3 h-3" />
+                                      Buka Sesi Checkout ArtoPay
+                                    </a>
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => syncArtopayStatus(order.id)}
+                                className="w-full py-1.5 px-2 bg-white hover:bg-emerald-100 border border-emerald-300 rounded-lg text-emerald-800 text-[11px] font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                Sinkronkan Status Gateway
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Proof Image Box */}
                         <div className="pt-2">
-                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">Bukti Transfer Pelanggan</span>
+                          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                            {order.paymentMethod === 'ARTOPAY_QRIS' ? 'Bukti Transfer Tambahan (Opsional)' : 'Bukti Transfer Pelanggan'}
+                          </span>
                           {order.paymentProof ? (
                             <div 
                               onClick={() => setShowImageModal(order.paymentProof || null)}
@@ -637,8 +705,10 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
                               </div>
                             </div>
                           ) : (
-                            <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-center text-xs text-rose-700">
-                              Bukti transfer belum diunggah oleh pelanggan.
+                            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                              {order.paymentMethod === 'ARTOPAY_QRIS' 
+                                ? 'Pembayaran menggunakan QRIS dinamis otomatis (tidak memerlukan upload manual).' 
+                                : 'Bukti transfer belum diunggah oleh pelanggan.'}
                             </div>
                           )}
                         </div>
@@ -756,8 +826,15 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
                             <span className="text-[11px] text-slate-500">{order.items.length} item ({order.items.map(i => `${i.quantity}x ${i.name}`).join(', ')})</span>
                           </td>
 
-                          <td className="py-3.5 px-4 font-mono font-bold text-slate-900">
-                            Rp {order.total.toLocaleString('id-ID')}
+                          <td className="py-3.5 px-4 font-mono">
+                            <span className="font-bold text-slate-900 block">Rp {order.total.toLocaleString('id-ID')}</span>
+                            {order.paymentMethod === 'ARTOPAY_QRIS' ? (
+                              <span className="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-bold inline-flex items-center gap-0.5 mt-0.5 border border-emerald-200 font-sans">
+                                <QrCode className="w-2.5 h-2.5" /> ArtoPay QRIS
+                              </span>
+                            ) : (
+                              <span className="text-[9px] text-slate-400 font-sans block mt-0.5">Transfer Manual</span>
+                            )}
                           </td>
 
                           <td className="py-3.5 px-4">
@@ -789,6 +866,18 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
                           </td>
 
                           <td className="py-3.5 px-4 text-right">
+                            {order.artopayCheckoutUrl && (
+                              <a
+                                href={order.artopayCheckoutUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold mr-1.5"
+                                title="Buka Checkout ArtoPay"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                                ArtoPay
+                              </a>
+                            )}
                             {order.paymentProof && (
                               <button
                                 onClick={() => setShowImageModal(order.paymentProof || null)}

@@ -2,6 +2,8 @@
 <html lang="id">
   <head>
     <meta charset="UTF-8" />
+    <!-- ArtoPay Gateway Client Config -->
+    <script id="arto-pay-sdk-script" data-client-key="%VITE_ARTOPAY_PUBLIC_KEY%"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>tumpangGo - Pesan Makanan Lokal Tumpang</title>
     <meta name="description" content="Platform Pemesanan Makanan Lokal Berbasis Website dan Progressive Web App (PWA) yang menghubungkan Customer, Merchant, Driver, dan Admin dalam satu sistem terintegrasi." />
@@ -88,9 +90,13 @@
       // Safe ServiceWorker Cleanup for Development / Preview Iframe
       try {
         if ('serviceWorker' in navigator) {
-          var isDevOrPreview = window.location.hostname === 'localhost' ||
+          var isIframe = false;
+          try { isIframe = window.self !== window.top; } catch (e) { isIframe = true; }
+          var isDevOrPreview = isIframe ||
+                               window.location.hostname === 'localhost' ||
                                window.location.hostname === '127.0.0.1' ||
                                window.location.hostname.indexOf('run.app') !== -1 ||
+                               window.location.hostname.indexOf('google') !== -1 ||
                                window.location.port === '3000';
           if (isDevOrPreview) {
             navigator.serviceWorker.getRegistrations()
@@ -102,9 +108,7 @@
                   console.log('[tumpangGo Dev] Active Service Workers unregistered.');
                 }
               })
-              .catch(function(err) {
-                // Silently ignore restricted iframe security errors
-              });
+              .catch(function(err) {});
 
             if ('caches' in window) {
               caches.keys()

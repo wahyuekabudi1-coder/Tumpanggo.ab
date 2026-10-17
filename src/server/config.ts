@@ -230,3 +230,20 @@ export const shopConfig = {
     paymentExpiryMinutes: 30,
   }
 };
+
+// --- ARTOPAY UNIFIED PAYMENT GATEWAY CONFIGURATION ---
+const artopayEnv = (process.env.ARTOPAY_ENVIRONMENT || 'sandbox').toLowerCase();
+const artopayBaseUrl = process.env.ARTOPAY_BASE_URL || (artopayEnv === 'production' 
+  ? 'https://api.artopay.co.id' 
+  : 'https://sandbox-api.artopay.co.id');
+
+export const artopayConfig = {
+  isProduction: process.env.NODE_ENV === 'production',
+  environment: artopayEnv as 'sandbox' | 'production',
+  apiKey: process.env.ARTOPAY_API_KEY || '',
+  secretKey: process.env.ARTOPAY_SECRET_KEY || '',
+  webhookSecret: process.env.ARTOPAY_WEBHOOK_SECRET || '',
+  baseUrl: artopayBaseUrl,
+  defaultExpiryMinutes: 15
+};
+

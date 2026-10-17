@@ -38,7 +38,17 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     }
   }
 
-  return window.fetch(input, { ...init, headers });
+  const nativeFetch = typeof window !== 'undefined' && typeof window.fetch === 'function'
+    ? window.fetch.bind(window)
+    : (typeof globalThis !== 'undefined' && typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : fetch);
+
+  const response = await nativeFetch(input, { ...init, headers });
+
+  if (isApiRequest && response.status === 401) {
+    console.warn(`[apiClient] 401 Unauthorized for endpoint: ${urlString}`);
+  }
+
+  return response;
 }
 
 export default apiFetch;

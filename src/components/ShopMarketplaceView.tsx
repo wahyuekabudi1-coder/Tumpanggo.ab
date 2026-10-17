@@ -95,6 +95,12 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
   const [proofMessage, setProofMessage] = useState<string | null>(null);
   const [proofError, setProofError] = useState<string | null>(null);
 
+  // ArtoPay Payment States for Shop
+  const [paymentMethodTab, setPaymentMethodTab] = useState<'ARTOPAY' | 'MANUAL'>('ARTOPAY');
+  const [artopayLoading, setArtopayLoading] = useState<boolean>(false);
+  const [artopayChecking, setArtopayChecking] = useState<boolean>(false);
+  const [artopayStatusMsg, setArtopayStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+
   // Tracking View Form States
   const [trackOrderNumber, setTrackOrderNumber] = useState<string>('');
   const [trackPhone, setTrackPhone] = useState<string>('');
@@ -460,6 +466,102 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
       setProofError(err.message || 'Terjadi kesalahan saat mengunggah bukti bayar.');
     } finally {
       setIsUploadingProof(false);
+    }
+  };
+
+  // ArtoPay Payment Intent Generation for Shop
+  const handleCreateArtoPayShopPayment = async (targetOrder?: ShopOrder) => {
+    const orderToPay = targetOrder || activeOrder || trackedOrder;
+    if (!orderToPay) return;
+
+    setArtopayLoading(true);
+    setArtopayStatusMsg(null);
+    try {
+      const res = await fetch('/api/artopay/payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: orderToPay.orderNumber || orderToPay.id,
+          serviceType: 'SHOP',
+          customerPhone: orderToPay.customerPhone,
+          amount: Math.round(Number(orderToPay.total))
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay.');
+      }
+
+      const updatedOrderData: Partial<ShopOrder> = {
+        artopayPaymentId: data.paymentIntentId,
+        artopayCheckoutUrl: data.checkoutUrl,
+        artopayStatus: 'PENDING',
+        paymentMethod: 'ARTOPAY_QRIS',
+        artopayExpiredAt: data.expiresAt
+      };
+
+      if (activeOrder && (activeOrder.id === orderToPay.id || activeOrder.orderNumber === orderToPay.orderNumber)) {
+        setActiveOrder(prev => prev ? { ...prev, ...updatedOrderData } : null);
+      }
+      if (trackedOrder && (trackedOrder.id === orderToPay.id || trackedOrder.orderNumber === orderToPay.orderNumber)) {
+        setTrackedOrder(prev => prev ? { ...prev, ...updatedOrderData } : null);
+      }
+
+      setArtopayStatusMsg({
+        type: 'info',
+        text: 'Sesi QRIS dinamis siap. Klik tombol di bawah untuk membuka halaman checkout ArtoPay dan scan QRIS.'
+      });
+
+      if (data.checkoutUrl) {
+        window.open(data.checkoutUrl, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err: any) {
+      console.error('[ArtoPay Shop Error]', err);
+      setArtopayStatusMsg({ type: 'error', text: err.message || 'Gagal memulai transaksi ArtoPay.' });
+    } finally {
+      setArtopayLoading(false);
+    }
+  };
+
+  // ArtoPay On-demand Status Sync for Shop
+  const handleCheckArtoPayShopStatus = async (targetOrder?: ShopOrder) => {
+    const orderToCheck = targetOrder || activeOrder || trackedOrder;
+    if (!orderToCheck) return;
+
+    setArtopayChecking(true);
+    setArtopayStatusMsg(null);
+    try {
+      const targetId = orderToCheck.orderNumber || orderToCheck.id;
+      const res = await fetch(`/api/artopay/status/${targetId}?serviceType=SHOP`);
+      const data = await res.json();
+
+      if (data.isPaid || data.status === 'PAID') {
+        const paidUpdate: Partial<ShopOrder> = {
+          paymentStatus: ShopPaymentStatus.PAID,
+          artopayStatus: 'SUCCESS'
+        };
+        if (activeOrder && (activeOrder.id === orderToCheck.id || activeOrder.orderNumber === orderToCheck.orderNumber)) {
+          setActiveOrder(prev => prev ? { ...prev, ...paidUpdate } : null);
+        }
+        if (trackedOrder && (trackedOrder.id === orderToCheck.id || trackedOrder.orderNumber === orderToCheck.orderNumber)) {
+          setTrackedOrder(prev => prev ? { ...prev, ...paidUpdate } : null);
+        }
+
+        setArtopayStatusMsg({
+          type: 'success',
+          text: 'Alhamdulillah! Pembayaran QRIS ArtoPay berhasil terverifikasi otomatis. Pesanan Anda segera disiapkan toko.'
+        });
+      } else {
+        setArtopayStatusMsg({
+          type: 'info',
+          text: 'Status pembayaran masih menunggu. Silakan selesaikan pembayaran di halaman checkout ArtoPay.'
+        });
+      }
+    } catch (err: any) {
+      setArtopayStatusMsg({ type: 'error', text: err.message || 'Gagal memeriksa status pembayaran.' });
+    } finally {
+      setArtopayChecking(false);
     }
   };
 
@@ -1094,96 +1196,244 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
           </div>
         </div>
 
-        {/* Payment Instructions & Official QRIS */}
+        {/* Payment Instructions: ArtoPay Dynamic QRIS vs Manual Transfer */}
         <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs flex flex-col gap-4">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
-            <CreditCard className="w-5 h-5 text-blue-600" />
-            <h3 className="font-extrabold text-sm text-slate-900">Instruksi Pembayaran QRIS</h3>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-5 bg-blue-50/50 p-4 sm:p-5 rounded-2xl border border-blue-100">
-            <div className="bg-white p-3 rounded-2xl shadow-xs border border-slate-200 flex flex-col items-center flex-shrink-0">
-              <img
-                src={shopConfig?.qrisImage || 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60'}
-                alt="QRIS Tumpang Shop"
-                className="w-36 h-36 object-cover rounded-xl"
-              />
-              <span className="text-[9px] font-black tracking-wider uppercase text-slate-400 mt-2">QRIS RESMI TOKO</span>
-            </div>
-
-            <div className="flex-1 flex flex-col gap-2 text-xs">
-              <div className="bg-white p-3 rounded-xl border border-blue-200/60">
-                <span className="text-[10px] text-slate-500 font-bold block">TOTAL NOMINAL YANG HARUS DIBAYAR:</span>
-                <span className="font-mono font-black text-xl text-blue-700 block mt-0.5">
-                  Rp {activeOrder.total.toLocaleString('id-ID')}
-                </span>
-                <span className="text-[10px] text-slate-400 mt-1 block">
-                  (Termasuk 3 digit kode verifikasi unik: {activeOrder.uniqueCode})
-                </span>
-              </div>
-
-              <div className="text-[11px] text-slate-600 leading-relaxed space-y-1">
-                <p>1. Buka aplikasi m-Banking (BCA, BRI, Mandiri, BNI) atau e-Wallet (GoPay, ShopeePay, OVO, Dana).</p>
-                <p>2. Scan QRIS di atas dan masukkan nominal <strong>tepat Rp {activeOrder.total.toLocaleString('id-ID')}</strong>.</p>
-                <p>3. Simpan bukti transfer dan unggah melalui formulir di bawah ini.</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Upload Payment Proof Form */}
-          <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
             <div className="flex items-center gap-2">
-              <Upload className="w-4 h-4 text-slate-600" />
-              <h4 className="font-extrabold text-xs text-slate-800">Unggah Bukti Transfer / Pembayaran</h4>
+              <CreditCard className="w-5 h-5 text-blue-600" />
+              <h3 className="font-extrabold text-sm text-slate-900">Metode Pembayaran</h3>
             </div>
-
-            {proofMessage && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
-                <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span>{proofMessage}</span>
-              </div>
-            )}
-
-            {proofError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>{proofError}</span>
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="w-full sm:flex-1 text-xs file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
-              />
-              <button
-                type="button"
-                onClick={() => handleSubmitProof(activeOrder.id, activeOrder.customerPhone)}
-                disabled={!proofImageBase64 || isUploadingProof}
-                className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                {isUploadingProof ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Mengunggah...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Kirim Bukti</span>
-                  </>
-                )}
-              </button>
-            </div>
-            {proofImageBase64 && (
-              <div className="mt-1">
-                <p className="text-[10px] text-slate-500 mb-1">Pratinjau Bukti:</p>
-                <img src={proofImageBase64} alt="Pratinjau" className="w-24 h-24 object-cover rounded-xl border border-slate-200" />
-              </div>
-            )}
+            <span className="text-[11px] font-bold text-slate-500">
+              {activeOrder.paymentStatus === 'PAID' ? 'Status: LUNAS' : 'Pilih Metode Bayar'}
+            </span>
           </div>
+
+          {/* Payment Method Selector Tabs */}
+          <div className="bg-slate-100 p-1 rounded-2xl flex text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => setPaymentMethodTab('ARTOPAY')}
+              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                paymentMethodTab === 'ARTOPAY'
+                  ? 'bg-white text-blue-700 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <QrCode className="w-4 h-4 text-blue-600" />
+              <span>QRIS Dinamis ArtoPay</span>
+              <span className="text-[9px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-full uppercase tracking-wider font-extrabold">Otomatis</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPaymentMethodTab('MANUAL')}
+              className={`flex-1 py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                paymentMethodTab === 'MANUAL'
+                  ? 'bg-white text-slate-800 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <CreditCard className="w-4 h-4 text-slate-500" />
+              <span>Transfer Manual</span>
+            </button>
+          </div>
+
+          {/* TAB 1: ARTOPAY DYNAMIC QRIS */}
+          {paymentMethodTab === 'ARTOPAY' && (
+            <div className="flex flex-col gap-3.5">
+              {/* Total Bill Card */}
+              <div className="bg-gradient-to-br from-blue-50 via-white to-sky-50 border border-blue-200/80 rounded-2xl p-5 shadow-xs text-center relative overflow-hidden">
+                <span className="text-[10px] text-blue-800 font-extrabold uppercase tracking-widest block">TOTAL NOMINAL TAGIHAN</span>
+                <h2 className="font-black text-2xl sm:text-3xl text-blue-900 mt-1">
+                  Rp {activeOrder.total.toLocaleString('id-ID')}
+                </h2>
+
+                <div className="mt-2.5 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-white border border-blue-200 shadow-xs">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                  <span className="text-blue-700">QRIS Dinamis ArtoPay (Real-Time)</span>
+                </div>
+
+                {/* ArtoPay Transaction Status Badge */}
+                <div className="mt-3 pt-3 border-t border-blue-100 flex items-center justify-between text-xs">
+                  <span className="text-slate-500 font-medium">Status Pembayaran:</span>
+                  <span className={`font-extrabold px-2.5 py-0.5 rounded-lg text-[11px] ${
+                    activeOrder.paymentStatus === 'PAID' || activeOrder.artopayStatus === 'SUCCESS'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {activeOrder.paymentStatus === 'PAID' || activeOrder.artopayStatus === 'SUCCESS'
+                      ? 'LUNAS (Terverifikasi Otomatis)'
+                      : 'MENUNGGU PEMBAYARAN'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status Message Notification */}
+              {artopayStatusMsg && (
+                <div className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+                  artopayStatusMsg.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : artopayStatusMsg.type === 'error'
+                    ? 'bg-rose-50 border-rose-200 text-rose-800'
+                    : 'bg-blue-50 border-blue-200 text-blue-800'
+                }`}>
+                  <Info className="w-4 h-4 flex-shrink-0" />
+                  <span>{artopayStatusMsg.text}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs flex flex-col gap-2.5">
+                {activeOrder.paymentStatus === 'PAID' ? (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-center font-bold text-xs flex items-center justify-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    <span>Pembayaran pesanan belanja ini telah lunas terverifikasi.</span>
+                  </div>
+                ) : activeOrder.artopayCheckoutUrl ? (
+                  <a
+                    href={activeOrder.artopayCheckoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Buka Halaman Checkout ArtoPay (Scan QRIS)</span>
+                    <ExternalLink className="w-3.5 h-3.5 ml-0.5 opacity-80" />
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleCreateArtoPayShopPayment(activeOrder)}
+                    disabled={artopayLoading}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {artopayLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Menyiapkan Sesi ArtoPay...</span>
+                      </>
+                    ) : (
+                      <>
+                        <QrCode className="w-4 h-4" />
+                        <span>Bayar Sekarang via ArtoPay (QRIS Dinamis)</span>
+                      </>
+                    )}
+                  </button>
+                )}
+
+                {activeOrder.paymentStatus !== 'PAID' && (
+                  <button
+                    type="button"
+                    onClick={() => handleCheckArtoPayShopStatus(activeOrder)}
+                    disabled={artopayChecking}
+                    className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${artopayChecking ? 'animate-spin' : ''}`} />
+                    <span>{artopayChecking ? 'Memeriksa ke Gateway ArtoPay...' : 'Cek Status Pembayaran (Sinkronkan)'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Explanatory banner */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-600 leading-relaxed flex flex-col gap-1">
+                <span className="font-bold text-slate-800 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  Verifikasi Otomatis Tanpa Upload Bukti:
+                </span>
+                <span>1. Klik tombol di atas untuk membuka tautan checkout resmi ArtoPay.</span>
+                <span>2. Scan kode QRIS dinamis dengan aplikasi m-Banking atau e-Wallet apa pun.</span>
+                <span>3. Status pembayaran otomatis terverifikasi dan pesanan langsung diproses.</span>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: MANUAL TRANSFER (FALLBACK) */}
+          {paymentMethodTab === 'MANUAL' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col sm:flex-row items-center gap-5 bg-slate-50 p-4 sm:p-5 rounded-2xl border border-slate-200">
+                <div className="bg-white p-3 rounded-2xl shadow-xs border border-slate-200 flex flex-col items-center flex-shrink-0">
+                  <img
+                    src={shopConfig?.qrisImage || 'https://images.unsplash.com/photo-1628157582853-a796fa650a6a?w=400&auto=format&fit=crop&q=60'}
+                    alt="QRIS Manual Tumpang Shop"
+                    className="w-36 h-36 object-cover rounded-xl"
+                  />
+                  <span className="text-[9px] font-black tracking-wider uppercase text-slate-400 mt-2">QRIS MANUAL TOKO</span>
+                </div>
+
+                <div className="flex-1 flex flex-col gap-2 text-xs">
+                  <div className="bg-white p-3 rounded-xl border border-slate-200">
+                    <span className="text-[10px] text-slate-500 font-bold block">TOTAL NOMINAL YANG HARUS DIBAYAR:</span>
+                    <span className="font-mono font-black text-xl text-blue-700 block mt-0.5">
+                      Rp {activeOrder.total.toLocaleString('id-ID')}
+                    </span>
+                    <span className="text-[10px] text-slate-400 mt-1 block">
+                      (Termasuk kode verifikasi unik: {activeOrder.uniqueCode})
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-slate-600 leading-relaxed space-y-1">
+                    <p>1. Scan QRIS manual di atas dan masukkan nominal tepat hingga digit terakhir.</p>
+                    <p>2. Simpan struk/tangkapan layar bukti transfer.</p>
+                    <p>3. Unggah foto bukti transfer melalui form di bawah ini agar diverifikasi admin.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Upload Payment Proof Form */}
+              <div className="border-t border-slate-100 pt-3 flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-slate-600" />
+                  <h4 className="font-extrabold text-xs text-slate-800">Unggah Bukti Transfer / Pembayaran</h4>
+                </div>
+
+                {proofMessage && (
+                  <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2">
+                    <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <span>{proofMessage}</span>
+                  </div>
+                )}
+
+                {proofError && (
+                  <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                    <span>{proofError}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="w-full sm:flex-1 text-xs file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200 cursor-pointer"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleSubmitProof(activeOrder.id, activeOrder.customerPhone)}
+                    disabled={!proofImageBase64 || isUploadingProof}
+                    className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    {isUploadingProof ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Mengunggah...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Kirim Bukti</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                {proofImageBase64 && (
+                  <div className="mt-1">
+                    <p className="text-[10px] text-slate-500 mb-1">Pratinjau Bukti:</p>
+                    <img src={proofImageBase64} alt="Pratinjau" className="w-24 h-24 object-cover rounded-xl border border-slate-200" />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -1583,29 +1833,91 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
 
             {/* If UNPAID, show payment instructions & upload */}
             {trackedOrder.paymentStatus === 'UNPAID' && (
-              <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-200 flex flex-col gap-3">
-                <div className="flex items-center gap-2 text-amber-900">
-                  <CreditCard className="w-4 h-4 text-amber-600" />
-                  <span className="font-extrabold text-xs">Pesanan Belum Lunas - Selesaikan Pembayaran</span>
+              <div className="bg-gradient-to-br from-blue-50/80 via-white to-amber-50/40 p-4 rounded-2xl border border-blue-200/80 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-blue-900">
+                    <QrCode className="w-4 h-4 text-blue-600" />
+                    <span className="font-extrabold text-xs">Pesanan Belum Lunas</span>
+                  </div>
+                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                    Menunggu Pembayaran
+                  </span>
                 </div>
-                <p className="text-[11px] text-amber-800 leading-relaxed">
-                  Silakan scan QRIS resmi toko sebesar Rp {trackedOrder.total.toLocaleString('id-ID')} dan kirim bukti transfer.
-                </p>
 
-                <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="w-full text-xs file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-white file:text-slate-700 cursor-pointer"
-                  />
+                {artopayStatusMsg && (
+                  <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 border ${
+                    artopayStatusMsg.type === 'success'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : artopayStatusMsg.type === 'error'
+                      ? 'bg-rose-50 border-rose-200 text-rose-800'
+                      : 'bg-blue-50 border-blue-200 text-blue-800'
+                  }`}>
+                    <Info className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>{artopayStatusMsg.text}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2">
+                  {trackedOrder.artopayCheckoutUrl ? (
+                    <a
+                      href={trackedOrder.artopayCheckoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Buka Sesi Checkout ArtoPay (Scan QRIS)</span>
+                      <ExternalLink className="w-3.5 h-3.5 ml-0.5 opacity-80" />
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleCreateArtoPayShopPayment(trackedOrder)}
+                      disabled={artopayLoading}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      {artopayLoading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Menyiapkan Sesi ArtoPay...</span>
+                        </>
+                      ) : (
+                        <>
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>Bayar via ArtoPay (QRIS Dinamis Otomatis)</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+
                   <button
-                    onClick={() => handleSubmitProof(trackedOrder.id, trackedOrder.customerPhone)}
-                    disabled={!proofImageBase64 || isUploadingProof}
-                    className="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex-shrink-0"
+                    type="button"
+                    onClick={() => handleCheckArtoPayShopStatus(trackedOrder)}
+                    disabled={artopayChecking}
+                    className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                   >
-                    {isUploadingProof ? 'Mengunggah...' : 'Kirim Bukti'}
+                    <RefreshCw className={`w-3 h-3 ${artopayChecking ? 'animate-spin' : ''}`} />
+                    <span>{artopayChecking ? 'Memeriksa status gateway...' : 'Cek Status Pembayaran (Sinkronkan)'}</span>
                   </button>
+                </div>
+
+                <div className="border-t border-slate-200/60 pt-2.5 mt-1">
+                  <span className="text-[10px] text-slate-500 font-bold block mb-1.5">Atau Unggah Bukti Transfer Manual:</span>
+                  <div className="flex flex-col sm:flex-row items-center gap-2">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="w-full text-xs file:mr-2 file:py-1.5 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-bold file:bg-white file:text-slate-700 cursor-pointer"
+                    />
+                    <button
+                      onClick={() => handleSubmitProof(trackedOrder.id, trackedOrder.customerPhone)}
+                      disabled={!proofImageBase64 || isUploadingProof}
+                      className="w-full sm:w-auto px-4 py-2 bg-slate-800 hover:bg-slate-900 disabled:bg-slate-200 disabled:text-slate-400 text-white font-bold text-xs rounded-xl transition-colors cursor-pointer flex-shrink-0"
+                    >
+                      {isUploadingProof ? 'Mengunggah...' : 'Kirim Bukti'}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}

@@ -1177,6 +1177,39 @@ export class ShopDatabase {
     return { ...order };
   }
 
+  public async attachArtopayPayment(
+    orderId: string,
+    artopayData: {
+      paymentMethod: 'ARTOPAY_QRIS';
+      artopayPaymentId: string;
+      artopayCheckoutUrl: string;
+      artopayStatus: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
+      artopayExpiredAt?: string;
+    }
+  ): Promise<ShopOrder> {
+    const index = this.data.orders.findIndex(o => o.id === orderId || o.orderNumber === orderId);
+    if (index === -1) {
+      throw new Error('Pesanan tidak ditemukan.');
+    }
+    const order = this.data.orders[index];
+    order.paymentMethod = artopayData.paymentMethod;
+    order.artopayPaymentId = artopayData.artopayPaymentId;
+    order.artopayCheckoutUrl = artopayData.artopayCheckoutUrl;
+    order.artopayStatus = artopayData.artopayStatus;
+    if (artopayData.artopayExpiredAt) {
+      order.artopayExpiredAt = artopayData.artopayExpiredAt;
+    }
+    order.updatedAt = new Date().toISOString();
+
+    const probe = await testFirestoreConnection();
+    if (shopConfig.isProduction || probe.connected) {
+      await safeAdminSetDoc(shopConfig.collections.orders, order.id, removeUndefinedFields(order));
+    }
+    this.saveToFile();
+    this.logAudit('ATTACH_ARTOPAY_PAYMENT', `Payment intent ArtoPay ${artopayData.artopayPaymentId} dipasang ke pesanan ${order.orderNumber}`, 'SYSTEM_ARTOPAY');
+    return { ...order };
+  }
+
   public async updateOrderStatus(actorId: string, orderId: string, newStatus: ShopOrderStatus, reason?: string): Promise<ShopOrder> {
     const index = this.data.orders.findIndex(o => o.id === orderId);
     if (index === -1) {

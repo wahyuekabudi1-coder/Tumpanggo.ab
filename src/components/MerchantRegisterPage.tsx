@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { safeStorage } from '../utils/safeStorage.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 import Logo from './Logo.tsx';
+
 import { 
   Store, User, Phone, Mail, MapPin, Tag, Lock, ArrowRight, CheckCircle2, 
   AlertCircle, Loader2, ArrowLeft, Clock, FileText, Camera, ShieldCheck, ExternalLink

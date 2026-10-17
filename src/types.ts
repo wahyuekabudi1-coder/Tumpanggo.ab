@@ -124,6 +124,12 @@ export interface Order {
   paymentExpiresAt: string; // ISO string (createdAt + 10 mins)
   preOrderDate?: string; // e.g. "2026-07-03" (YYYY-MM-DD)
   clientRequestId?: string;
+  paymentMethod?: 'MANUAL_TRANSFER' | 'ARTOPAY_QRIS';
+  artopayPaymentId?: string;
+  artopayCheckoutUrl?: string;
+  artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
+  artopayExpiredAt?: string;
+  paymentVerifiedAt?: string;
 }
 
 export interface Driver {

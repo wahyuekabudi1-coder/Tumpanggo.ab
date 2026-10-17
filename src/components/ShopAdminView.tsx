@@ -25,10 +25,11 @@ import {
   Trash2, Plus, RefreshCw, Eye, ArrowLeft, LogOut, ShieldCheck, 
   Download, Printer, Upload, Image as ImageIcon, MapPin, Phone, 
   User, Globe, Check, AlertCircle, ChevronRight, X, Copy, ExternalLink,
-  Lock, Tag, Layers
+  Lock, Tag, Layers, QrCode, Info
 } from 'lucide-react';
 import { compressImage } from '../utils/imageCompressor';
 import { safeStorage } from '../utils/safeStorage.ts';
+import { apiFetch as fetch } from '../utils/apiClient.ts';
 
 interface ShopAdminViewProps {
   onBackToCustomer?: () => void;
@@ -63,7 +64,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
   const [shipments, setShipments] = useState<ShopShipment[]>([]);
   const [config, setConfig] = useState<ShopConfig | null>(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
-  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   // Order Filter & Detail States
   const [orderFilterPayment, setOrderFilterPayment] = useState<string>('all');
@@ -156,7 +157,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
     }
   }, [feedbackMessage]);
 
-  const showNotification = (type: 'success' | 'error', text: string) => {
+  const showNotification = (type: 'success' | 'error' | 'info', text: string) => {
     setFeedbackMessage({ type, text });
   };
 
@@ -326,6 +327,25 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
       loadDashboardData();
     } catch (err: any) {
       showNotification('error', err.message);
+    } finally {
+      setIsProcessingOrder(false);
+    }
+  };
+
+  // Handle Sync ArtoPay Gateway Status for Shop Admin
+  const handleSyncArtopayStatus = async (orderId: string) => {
+    setIsProcessingOrder(true);
+    try {
+      const res = await authFetch(`/api/artopay/status/${orderId}?serviceType=SHOP`);
+      const data = await res.json();
+      if (data.isPaid || data.status === 'PAID') {
+        showNotification('success', 'Status ArtoPay: LUNAS! Data pesanan telah diperbarui otomatis.');
+      } else {
+        showNotification('info', `Status ArtoPay: ${data.artopayStatus || 'PENDING'}. Pembayaran belum diselesaikan pelanggan.`);
+      }
+      loadDashboardData();
+    } catch (err: any) {
+      showNotification('error', err.message || 'Gagal memeriksa status pembayaran ArtoPay.');
     } finally {
       setIsProcessingOrder(false);
     }
@@ -708,9 +728,9 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
       {/* Toast Notification */}
       {feedbackMessage && (
         <div className={`fixed top-4 right-4 z-[200] px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-bold text-white transition-all animate-fadeIn ${
-          feedbackMessage.type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'
+          feedbackMessage.type === 'success' ? 'bg-emerald-600' : feedbackMessage.type === 'info' ? 'bg-blue-600' : 'bg-rose-600'
         }`}>
-          {feedbackMessage.type === 'success' ? <Check className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
+          {feedbackMessage.type === 'success' ? <Check className="w-4 h-4" /> : feedbackMessage.type === 'info' ? <Info className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
           <span>{feedbackMessage.text}</span>
         </div>
       )}
@@ -1155,6 +1175,11 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
                             }`}>
                               {order.paymentStatus}
                             </span>
+                            {order.paymentMethod === 'ARTOPAY_QRIS' && (
+                              <span className="text-[9px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-bold block mt-1">
+                                ArtoPay QRIS
+                              </span>
+                            )}
                             {order.paymentProof && (
                               <span className="text-[9px] text-blue-600 block mt-1 font-semibold">
                                 *Ada bukti bayar
@@ -1955,6 +1980,55 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
                 <span className="text-blue-700">Rp {selectedOrder.total.toLocaleString('id-ID')}</span>
               </div>
             </div>
+
+            {/* ArtoPay Gateway Information (if QRIS Dinamis) */}
+            {(selectedOrder.paymentMethod === 'ARTOPAY_QRIS' || selectedOrder.artopayPaymentId) && (
+              <div className="p-4 bg-blue-50/80 border border-blue-200 rounded-2xl flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase text-blue-900 flex items-center gap-1.5">
+                    <QrCode className="w-4 h-4 text-blue-600" />
+                    Pembayaran QRIS Dinamis ArtoPay
+                  </span>
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                    selectedOrder.paymentStatus === 'PAID' || selectedOrder.artopayStatus === 'SUCCESS'
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {selectedOrder.artopayStatus || (selectedOrder.paymentStatus === 'PAID' ? 'SUCCESS' : 'PENDING')}
+                  </span>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-blue-100 text-xs space-y-1">
+                  <div className="flex justify-between font-mono">
+                    <span className="text-slate-500 font-sans">Payment Intent ID:</span>
+                    <span className="font-bold text-slate-800 break-all">{selectedOrder.artopayPaymentId || '-'}</span>
+                  </div>
+                  {selectedOrder.artopayCheckoutUrl && (
+                    <div className="pt-1 flex items-center justify-between">
+                      <a
+                        href={selectedOrder.artopayCheckoutUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 underline"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Buka Halaman Checkout ArtoPay
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleSyncArtopayStatus(selectedOrder.id)}
+                  disabled={isProcessingOrder}
+                  className="w-full py-2 bg-white hover:bg-blue-100 border border-blue-300 rounded-xl text-blue-800 text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isProcessingOrder ? 'animate-spin' : ''}`} />
+                  <span>Sinkronkan Status Gateway ArtoPay</span>
+                </button>
+              </div>
+            )}
 
             {/* Payment Proof Section */}
             {selectedOrder.paymentProof && (
