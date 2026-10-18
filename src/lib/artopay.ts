@@ -34,9 +34,13 @@ export interface PaymentIntentResult {
   currency: string;
   checkoutUrl: string;
   qrString?: string;
+  clientSecret?: string;
+  customerToken?: string;
   status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
   expiresAt: string;
   createdAt: string;
+  isDemo?: boolean;
+  gatewayConfigured?: boolean;
 }
 
 export interface WebhookVerificationResult {
@@ -45,23 +49,37 @@ export interface WebhookVerificationResult {
 }
 
 export interface ArtoPayWebhookPayload {
-  event: string;
-  data: {
-    paymentIntentId: string;
-    orderId: string;
+  event?: string;
+  data?: {
+    paymentIntentId?: string;
+    id?: string;
+    orderId?: string;
+    referenceId?: string;
     serviceType?: 'FOOD' | 'SHOP';
-    amount: number;
-    currency: string;
+    amount?: number | string;
+    currency?: string;
     status: 'PAID' | 'SUCCESS' | 'SETTLED' | 'PENDING' | 'FAILED' | 'EXPIRED' | 'CANCELLED';
     paymentMethod?: string;
     paidAt?: string;
     metadata?: Record<string, any>;
   };
+  // Flat format fallback
+  paymentIntentId?: string;
+  id?: string;
+  orderId?: string;
+  referenceId?: string;
+  serviceType?: 'FOOD' | 'SHOP';
+  amount?: number | string;
+  currency?: string;
+  status?: string;
+  paidAt?: string;
+  metadata?: Record<string, any>;
 }
 
 export class ArtoPayService {
   /**
-   * Generates a new Payment Intent with dynamic QRIS through ArtoPay Payment Link.
+   * Generates a new Payment Intent through ArtoPay Payment Link API.
+   * Conforms to official ArtoPay API spec (/v1.1/payment-intents & /v1/payment-intents).
    * Enforces strict server-side nominal validation.
    */
   public static async createPaymentIntent(params: CreatePaymentIntentParams): Promise<PaymentIntentResult> {
@@ -92,44 +110,58 @@ export class ArtoPayService {
       throw new Error('Kredensial ARTOPAY_SECRET_KEY belum disetel di lingkungan produksi. Hubungi administrator.');
     }
 
-    // 3. Attempt external ArtoPay Gateway call if API key / secret is available
+    // 3. Attempt official ArtoPay Gateway call if secret key is available
     if (artopayConfig.secretKey) {
       try {
         const payload = {
-          referenceId: `${serviceType}-${orderId}`,
-          orderId: orderId,
-          serviceType: serviceType,
-          amount: amount,
+          amount: String(amount),
           currency: 'IDR',
-          paymentMethod: 'QRIS',
-          customer: {
-            name: customerName,
-            phone: customerPhone,
-            email: customerEmail || undefined
-          },
+          customerId: customerPhone ? customerPhone.replace(/\D/g, '') : `cust_${Date.now()}`,
           description: params.description || `Pembayaran tumpangGo ${serviceType} #${orderId}`,
-          expiryMinutes: expiryMinutes,
-          callbackUrl: params.callbackUrl,
-          returnUrl: params.returnUrl
+          metadata: {
+            orderId: orderId,
+            serviceType: serviceType,
+            customerName: customerName,
+            customerPhone: customerPhone,
+            customerEmail: customerEmail || undefined
+          }
         };
 
-        const response = await fetch(`${artopayConfig.baseUrl}/v1/payment-intents`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${artopayConfig.secretKey}`,
-            ...(artopayConfig.apiKey ? { 'x-api-key': artopayConfig.apiKey } : {})
-          },
-          body: JSON.stringify(payload)
-        });
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          'X-Secret-Key': artopayConfig.secretKey,
+          'Authorization': `Bearer ${artopayConfig.secretKey}`
+        };
+        if (artopayConfig.apiKey) {
+          headers['x-api-key'] = artopayConfig.apiKey;
+        }
 
-        if (response.ok) {
+        // Try primary /v1.1/payment-intents endpoint first, then /v1/payment-intents
+        let response = await fetch(`${artopayConfig.baseUrl}/v1.1/payment-intents`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload)
+        }).catch(() => null);
+
+        if (!response || !response.ok) {
+          response = await fetch(`${artopayConfig.baseUrl}/v1/payment-intents`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(payload)
+          }).catch(() => null);
+        }
+
+        if (response && response.ok) {
           const resJson = await response.json();
           const d = resJson.data || resJson;
-          const returnedId = d.id || d.paymentIntentId || d.transactionId;
-          const returnedUrl = d.checkoutUrl || d.paymentUrl;
+          const returnedId = String(d.id || d.paymentIntentId || d.transactionId || '');
+          const clientSecret = d.clientSecret || d.secret || '';
+          const customerToken = d.customerToken || d.token || '';
+          
+          // Form official payment link URL
+          const returnedUrl = d.checkoutUrl || d.paymentUrl || (returnedId ? `${artopayConfig.payBaseUrl}/${returnedId}` : '');
 
-          if (returnedId && returnedUrl) {
+          if (returnedId) {
             return {
               success: true,
               id: returnedId,
@@ -140,16 +172,21 @@ export class ArtoPayService {
               currency: 'IDR',
               checkoutUrl: returnedUrl,
               qrString: d.qrString || d.qrCodeUrl,
+              clientSecret,
+              customerToken,
               status: 'PENDING',
               expiresAt: d.expiresAt || expiresAt,
-              createdAt
+              createdAt,
+              isDemo: false,
+              gatewayConfigured: true
             };
           }
         } else {
-          const errText = await response.text();
-          console.warn(`[ArtoPay Gateway] HTTP ${response.status} from ${artopayConfig.baseUrl}: ${errText}`);
+          const status = response ? response.status : 'NETWORK_ERROR';
+          const errText = response ? await response.text() : 'Gagal menghubungi server ArtoPay.';
+          console.warn(`[ArtoPay Gateway] HTTP ${status} from ${artopayConfig.baseUrl}: ${errText}`);
           if (isProduction) {
-            throw new Error(`Gateway ArtoPay menolak pembuatan transaksi (HTTP ${response.status}). Silakan coba beberapa saat lagi.`);
+            throw new Error(`Gateway ArtoPay menolak pembuatan transaksi (HTTP ${status}). Silakan coba beberapa saat lagi.`);
           }
         }
       } catch (err: any) {
@@ -160,23 +197,30 @@ export class ArtoPayService {
       }
     }
 
-    // 4. Sandbox fallback for testing and development environments
-    // Generates compliant mock payment intent ID and verifiable sandbox checkout session
-    const sandboxId = `artopay_pi_${serviceType.toLowerCase()}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const sandboxCheckoutUrl = `${artopayConfig.baseUrl}/checkout/${sandboxId}?order=${encodeURIComponent(orderId)}&amt=${amount}`;
+    // 4. Sandbox / Preview Fallback with dedicated in-app demo payment link
+    // Allows full UI testing and interactive webhook simulation in Google AI Studio Preview
+    const demoId = `demo_artopay_pi_${serviceType.toLowerCase()}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const demoClientSecret = `demo_secret_${crypto.randomBytes(8).toString('hex')}`;
+    const demoCustomerToken = `demo_token_${crypto.randomBytes(8).toString('hex')}`;
+    // In-app interactive preview payment link
+    const demoCheckoutUrl = `/api/artopay/checkout/${demoId}?order=${encodeURIComponent(orderId)}&amt=${amount}&service=${serviceType}`;
 
     return {
       success: true,
-      id: sandboxId,
-      paymentIntentId: sandboxId,
+      id: demoId,
+      paymentIntentId: demoId,
       orderId,
       serviceType,
       amount,
       currency: 'IDR',
-      checkoutUrl: sandboxCheckoutUrl,
+      checkoutUrl: demoCheckoutUrl,
+      clientSecret: demoClientSecret,
+      customerToken: demoCustomerToken,
       status: 'PENDING',
       expiresAt,
-      createdAt
+      createdAt,
+      isDemo: true,
+      gatewayConfigured: Boolean(artopayConfig.secretKey)
     };
   }
 

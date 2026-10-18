@@ -39,6 +39,7 @@ let activeClientEmailMasked: string | null = null;
 let lastDiagnosticReason: DiagnosticReason = 'MISSING_CREDENTIALS';
 let lastDiagnosticDetail = 'Variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.';
 let lastRemediationStep: string | undefined = 'Tambahkan variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY di Vercel Project Settings > Environment Variables berisi JSON Service Account dari Firebase Console.';
+let lastProbeResult: { timestamp: number; result: any } | null = null;
 
 export function getActiveProjectId(): string {
   return activeProjectId;
@@ -72,6 +73,7 @@ export interface ParseServiceAccountResult {
   reason: DiagnosticReason;
   error?: string;
   remediation?: string;
+  projectId?: string;
   clientEmailMasked?: string;
 }
 
@@ -227,7 +229,7 @@ export function parseServiceAccountKey(rawInput: string, expectedProjectId?: str
       account: null,
       reason: 'PROJECT_ID_MISMATCH',
       error: `Project ID pada Service Account ("${parsed.project_id}") tidak cocok dengan target proyek aplikasi ("${targetProject}").`,
-      remediation: `Unduh Service Account dari Firebase Project "${targetProject}" di Firebase Console, bukan dari project Google Cloud lain.`,
+      remediation: `Buka Vercel Dashboard -> Project Settings -> Environment Variables. Sesuaikan variabel FIREBASE_PROJECT_ID agar cocok dengan project ID Service Account ("${parsed.project_id}"), atau unduh Service Account baru dari proyek "${targetProject}" di Firebase Console.`,
       projectId: parsed.project_id,
       clientEmailMasked: maskClientEmail(parsed.client_email)
     };
@@ -253,6 +255,9 @@ export function initFirebaseAdmin(serviceAccountOverride?: string): { success: b
   try {
     const targetProject = getExpectedProjectId();
     activeProjectId = targetProject;
+
+    // Invalidate cached connection probe result whenever re-initializing
+    lastProbeResult = null;
 
     // Discover credential from override or standard aliases
     const rawInput = (
@@ -414,7 +419,6 @@ export interface FirestoreProbeResult {
   remediationStep?: string;
 }
 
-let lastProbeResult: { timestamp: number; result: FirestoreProbeResult } | null = null;
 const PROBE_CACHE_TTL_MS = 10000;
 
 /**
@@ -466,6 +470,9 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
     ]);
   };
 
+  let diagnosticDetail = 'Koneksi cloud Firestore Admin SDK aktif dan berhasil membaca/menulis data.';
+  let remediationStep: string | undefined = undefined;
+
   // Read Probe on systemConfig collection (Zero unnecessary writes)
   try {
     await withTimeout(
@@ -478,23 +485,19 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
     isFirestoreVerified = true;
   } catch (err: any) {
     isFirestoreVerified = false;
-    probeError = sanitizeErrorMessage(err.message || String(err));
-  }
+    probeError = sanitizeErrorMessage(err?.message || String(err));
+    const rawErrCode = (err as any)?.code;
+    const lower = (probeError + ' ' + String(rawErrCode || '')).toLowerCase();
 
-  let diagnosticDetail = 'Koneksi cloud Firestore Admin SDK aktif dan berhasil membaca/menulis data.';
-  let remediationStep: string | undefined = undefined;
-
-  if (probeError) {
-    const lower = probeError.toLowerCase();
-    if (lower.includes('could not load the default credentials')) {
+    if (rawErrCode === 16 || lower.includes('could not load the default credentials') || lower.includes('unauthenticated')) {
       diagnosticReason = 'MISSING_CREDENTIALS';
       diagnosticDetail = 'Google Auth Library gagal memuat kredensial default. Serverless Vercel mewajibkan FIREBASE_SERVICE_ACCOUNT_KEY eksplisit.';
       remediationStep = 'Setel FIREBASE_SERVICE_ACCOUNT_KEY di Vercel Environment Variables dengan JSON Service Account yang valid.';
-    } else if (lower.includes('permission_denied') || lower.includes('missing or insufficient permissions') || lower.includes('status: 7')) {
+    } else if (rawErrCode === 7 || rawErrCode === '7' || rawErrCode === 'PERMISSION_DENIED' || lower.includes('permission_denied') || lower.includes('permission denied') || lower.includes('missing or insufficient permissions') || lower.includes('status: 7')) {
       diagnosticReason = 'IAM_PERMISSION_DENIED';
       diagnosticDetail = `Service Account (${activeClientEmailMasked || 'terpasang'}) ditolak oleh Google Cloud IAM (PERMISSION_DENIED). Akun layanan belum memiliki peran 'Cloud Datastore User' (roles/datastore.user) atau 'Firebase Admin' pada proyek "${activeProjectId}".`;
       remediationStep = `Buka Google Cloud Console -> IAM & Admin -> IAM pada proyek "${activeProjectId}", cari akun layanan "${activeClientEmailMasked || 'Service Account'}", dan tambahkan peran "Cloud Datastore User" (roles/datastore.user).`;
-    } else if (lower.includes('not found') || lower.includes('database') || lower.includes('status: 5')) {
+    } else if (rawErrCode === 5 || rawErrCode === '5' || rawErrCode === 'NOT_FOUND' || lower.includes('not found') || lower.includes('database') || lower.includes('status: 5')) {
       diagnosticReason = 'DATABASE_NOT_FOUND';
       diagnosticDetail = `Database Firestore "${foodConfig.databaseId}" tidak ditemukan pada proyek "${activeProjectId}".`;
       remediationStep = `Pastikan database Firestore dengan ID "${foodConfig.databaseId}" sudah dibuat di Firebase Console.`;
@@ -502,7 +505,7 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
       diagnosticReason = 'INVALID_PROJECT';
       diagnosticDetail = `Proyek Google Cloud "${activeProjectId}" tidak valid atau tidak dapat diakses.`;
       remediationStep = `Pastikan Service Account dibuat dari project ID "${activeProjectId}" di Firebase Console.`;
-    } else if (lower.includes('timed out') || lower.includes('deadline_exceeded') || lower.includes('unavailable') || lower.includes('econnrefused')) {
+    } else if (rawErrCode === 4 || rawErrCode === 14 || rawErrCode === '4' || rawErrCode === '14' || rawErrCode === 'DEADLINE_EXCEEDED' || rawErrCode === 'UNAVAILABLE' || lower.includes('timed out') || lower.includes('deadline_exceeded') || lower.includes('unavailable') || lower.includes('econnrefused') || lower.includes('etimedout')) {
       diagnosticReason = 'NETWORK_OR_TIMEOUT';
       diagnosticDetail = 'Gagal menghubungi server Google Cloud Firestore karena koneksi timeout atau gangguan jaringan serverless.';
       remediationStep = 'Periksa koneksi jaringan hosting Vercel dan pastikan akses ke firestore.googleapis.com tidak dibatasi firewall.';
@@ -515,7 +518,9 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
     lastDiagnosticReason = diagnosticReason;
     lastDiagnosticDetail = diagnosticDetail;
     lastRemediationStep = remediationStep;
-  } else {
+  }
+
+  if (!probeError) {
     lastDiagnosticReason = 'OK';
     lastDiagnosticDetail = diagnosticDetail;
     lastRemediationStep = undefined;
@@ -539,6 +544,31 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
   };
   lastProbeResult = { timestamp: Date.now(), result };
   return result;
+}
+
+export function clearProbeCache(): void {
+  lastProbeResult = null;
+}
+
+export async function resetFirebaseAdmin(): Promise<void> {
+  const getAppsFn = getApps || (admin as any).getApps;
+  const currentApps = typeof getAppsFn === 'function' ? getAppsFn() : [];
+  for (const a of currentApps) {
+    try {
+      if (typeof (a as any).delete === 'function') {
+        await (a as any).delete();
+      }
+    } catch {}
+  }
+  adminApp = null;
+  adminDb = null;
+  isConfiguredWithServiceAccount = false;
+  isFirestoreVerified = false;
+  activeClientEmailMasked = null;
+  lastProbeResult = null;
+  lastDiagnosticReason = 'MISSING_CREDENTIALS';
+  lastDiagnosticDetail = 'Variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.';
+  lastRemediationStep = 'Buka Vercel Dashboard -> Project Settings -> Environment Variables, lalu tambahkan FIREBASE_SERVICE_ACCOUNT_KEY berisi JSON Service Account dari Firebase Console.';
 }
 
 /**

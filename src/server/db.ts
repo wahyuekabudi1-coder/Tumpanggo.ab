@@ -25,7 +25,8 @@ import {
   removeUndefinedFields,
   isFirestoreAdminConfigured,
   isUsingServiceAccount,
-  testFirestoreConnection
+  testFirestoreConnection,
+  getFirestoreDiagnosticStatus
 } from './firebaseAdmin';
 
 const FOOD_DB_FILE = foodConfig.localDbFile;
@@ -430,20 +431,23 @@ export class FoodDatabase {
    * Synchronize state with Firebase Firestore as Primary Storage.
    */
   public async init() {
-    if (!isFirestoreAdminConfigured()) {
+    // 1. Check if Firebase Admin SDK has valid explicit credentials
+    if (!isUsingServiceAccount() || !getAdminDb()) {
+      const diag = getFirestoreDiagnosticStatus();
       if (foodConfig.isProduction) {
-        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi (FIREBASE_SERVICE_ACCOUNT_KEY kosong atau belum disetel di Vercel). Operasi database cloud ditolak demi integritas data.');
+        throw new Error(`[Produksi] Firebase Admin SDK tidak terkonfigurasi (${diag.reason}: ${diag.detail}). ${diag.remediation || ''}`);
       }
-      console.warn('[TumpangFood DB] Firestore Admin SDK not configured, operating with persistent local storage.');
+      console.warn(`[TumpangFood DB] Firestore Admin SDK tidak terkonfigurasi (${diag.reason}), beroperasi dengan penyimpanan lokal.`);
       this.isInitialized = true;
       return;
     }
 
+    // 2. Perform live connection probe to verify actual Firestore Cloud accessibility
     const probe = await testFirestoreConnection();
     if (!probe.connected) {
       if (foodConfig.isProduction) {
         this.isInitialized = false;
-        throw new Error(`[Produksi] Firestore Cloud tidak terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Mode produksi menolak fallback ke data JSON lokal demi menjaga integritas data.`);
+        throw new Error(`[Produksi] Firestore Cloud tidak terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). ${probe.remediationStep || ''}`);
       }
       console.warn(`[TumpangFood DB] Firestore Cloud belum terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Melewati sinkronisasi remote koleksi.`);
       this.isInitialized = true;

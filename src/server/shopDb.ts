@@ -19,7 +19,7 @@ import { shopConfig } from './config';
 import { 
   getAdminDb, safeAdminSetDoc, safeAdminDeleteDoc, safeAdminGetDoc, 
   safeAdminGetDocs, removeUndefinedFields, isFirestoreAdminConfigured,
-  testFirestoreConnection
+  isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus
 } from './firebaseAdmin';
 
 const SHOP_DB_FILE = shopConfig.localDbFile;
@@ -341,9 +341,22 @@ export class ShopDatabase {
       return;
     }
 
-    if (!isFirestoreAdminConfigured()) {
+    // 1. Check if Firebase Admin SDK has valid explicit credentials
+    if (!isUsingServiceAccount() || !getAdminDb()) {
+      const diag = getFirestoreDiagnosticStatus();
       if (shopConfig.isProduction) {
-        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi untuk Tumpang Shop (FIREBASE_SERVICE_ACCOUNT_KEY kosong atau belum disetel di Vercel). Operasi database cloud ditolak demi integritas data.');
+        throw new Error(`[Produksi] Firebase Admin SDK tidak terkonfigurasi untuk Tumpang Shop (${diag.reason}: ${diag.detail}). ${diag.remediation || ''}`);
+      }
+      this.isInitialized = true;
+      return;
+    }
+
+    // 2. Perform live connection probe
+    const probe = await testFirestoreConnection();
+    if (!probe.connected) {
+      if (shopConfig.isProduction) {
+        this.isInitialized = false;
+        throw new Error(`[Produksi] Firestore Cloud tidak terhubung untuk Tumpang Shop (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). ${probe.remediationStep || ''}`);
       }
       this.isInitialized = true;
       return;

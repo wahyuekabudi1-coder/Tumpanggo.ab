@@ -10,6 +10,7 @@ import ErrorBoundary from './ErrorBoundary.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
+import { openPayment } from '@arto-pay/js-sdk';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -544,6 +545,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [artopayLoading, setArtopayLoading] = useState(false);
   const [artopayChecking, setArtopayChecking] = useState(false);
   const [artopayStatusMsg, setArtopayStatusMsg] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [showArtopayModal, setShowArtopayModal] = useState<boolean>(false);
 
   // History search state
   const [historyPhone, setHistoryPhone] = useState('');
@@ -1218,6 +1220,40 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
   };
 
+  // Open official ArtoPay SDK Modal
+  const handleOpenArtopaySdk = (paymentId?: string, clientSecret?: string, token?: string) => {
+    if (!activeOrder) return;
+    const targetPaymentId = paymentId || activeOrder.artopayPaymentId;
+    if (!targetPaymentId) return;
+
+    try {
+      const pubKey = (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || undefined;
+      openPayment({
+        clientSecret: clientSecret || targetPaymentId,
+        paymentId: targetPaymentId,
+        orderId: activeOrder.id,
+        token: token,
+        sandbox: true,
+        publicKey: pubKey,
+        onSuccess: async () => {
+          // Strictly verify via backend API to prevent client-side spoofing
+          await handleCheckArtoPayStatus();
+        },
+        onPending: () => {
+          handleCheckArtoPayStatus();
+        },
+        onError: (err: any) => {
+          console.warn('[ArtoPay SDK Error]', err);
+        },
+        onClose: () => {
+          handleCheckArtoPayStatus();
+        }
+      } as any);
+    } catch (e) {
+      console.warn('[ArtoPay SDK openPayment failed]', e);
+    }
+  };
+
   // ArtoPay Payment Intent Generation
   const handleCreateArtoPayPayment = async () => {
     if (!activeOrder) return;
@@ -1229,7 +1265,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: activeOrder.id,
-          serviceType: 'FOOD'
+          serviceType: 'FOOD',
+          amount: Math.round(Number(activeOrder.total))
         })
       });
       const data = await res.json();
@@ -1243,13 +1280,16 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         artopayStatus: 'PENDING',
         paymentMethod: 'ARTOPAY_QRIS'
       });
+      setShowArtopayModal(true);
       setArtopayStatusMsg({
-        type: 'info',
-        text: 'Sesi QRIS dinamis siap. Mengarahkan Anda ke portal checkout ArtoPay...'
+        type: data.gatewayConfigured ? 'success' : 'info',
+        text: data.gatewayConfigured
+          ? 'Sesi ArtoPay resmi aktif. Silakan selesaikan pembayaran melalui modal checkout atau payment link.'
+          : 'Tahap Persiapan: Kredensial gateway ArtoPay belum diisi di Environment Variables. Alur pesanan dan validasi server siap diuji.'
       });
-      if (data.checkoutUrl) {
-        window.open(data.checkoutUrl, '_blank', 'noopener,noreferrer');
-      }
+
+      // Launch official ArtoPay SDK modal
+      handleOpenArtopaySdk(data.paymentIntentId, data.clientSecret, data.customerToken);
     } catch (err: any) {
       console.error('[ArtoPay Error]', err);
       setArtopayStatusMsg({ type: 'error', text: err.message || 'Gagal memulai transaksi ArtoPay.' });
@@ -1269,11 +1309,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       if (!res.ok) {
         throw new Error(data.error || 'Gagal memeriksa status pembayaran.');
       }
-      if (data.isPaid) {
+      if (data.isPaid || data.status === 'PAID' || data.status === OrderStatus.PAYMENT_VERIFIED) {
         setArtopayStatusMsg({
           type: 'success',
           text: 'Alhamdulillah! Pembayaran QRIS ArtoPay berhasil terverifikasi otomatis. Pesanan segera disiapkan penjual.'
         });
+        setShowArtopayModal(false);
         await refreshActiveOrder();
       } else {
         setArtopayStatusMsg({
@@ -1321,6 +1362,41 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       console.error('Error refreshing order:', e);
     }
   };
+
+  // Auto-listen to payment completion messages and auto-poll status
+  useEffect(() => {
+    const handleMsg = async (event: MessageEvent) => {
+      if (event.data?.type === 'PAYMENT_SUCCESS') {
+        if (activeOrder && (event.data.orderId === activeOrder.id || event.data.paymentIntentId === activeOrder.artopayPaymentId)) {
+          // Verify with backend before confirming
+          await handleCheckArtoPayStatus();
+        }
+      }
+    };
+    window.addEventListener('message', handleMsg);
+    return () => window.removeEventListener('message', handleMsg);
+  }, [activeOrder?.id, activeOrder?.artopayPaymentId]);
+
+  useEffect(() => {
+    if (!activeOrder || activeOrder.status !== OrderStatus.WAITING_PAYMENT || !activeOrder.artopayPaymentId) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/artopay/status/${activeOrder.id}?serviceType=FOOD`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isPaid || data.status === 'PAID' || data.status === OrderStatus.PAYMENT_VERIFIED) {
+            setArtopayStatusMsg({
+              type: 'success',
+              text: 'Alhamdulillah! Pembayaran QRIS ArtoPay berhasil terverifikasi otomatis. Pesanan segera disiapkan penjual.'
+            });
+            setShowArtopayModal(false);
+            refreshActiveOrder();
+          }
+        }
+      } catch {}
+    }, 3500);
+    return () => clearInterval(interval);
+  }, [activeOrder?.id, activeOrder?.status, activeOrder?.artopayPaymentId]);
 
   // Search History
   const searchHistory = async (e: React.FormEvent) => {
@@ -1879,6 +1955,133 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
               >
                 Tutup & Kembali
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ArtoPay Embedded Checkout Modal */}
+        {showArtopayModal && activeOrder && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 text-white p-4 px-5 flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center font-extrabold text-white text-base shadow-xs">
+                    T
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-extrabold text-sm leading-tight tracking-tight flex items-center gap-1.5">
+                      <span>ArtoPay Payment Link</span>
+                      <span className="text-[10px] bg-emerald-500/40 border border-emerald-300/30 px-2 py-0.5 rounded-full font-bold">Resmi</span>
+                    </h3>
+                    <p className="text-[11px] text-emerald-100/90">QRIS Dinamis • Tumpang Food</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowArtopayModal(false)}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/25 text-white flex items-center justify-center transition-colors cursor-pointer"
+                  aria-label="Tutup"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 overflow-y-auto flex flex-col items-center text-center gap-4">
+                {/* Order & Amount Meta */}
+                <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center justify-between text-xs">
+                  <div className="text-left">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Nomor Pesanan</span>
+                    <span className="font-bold text-slate-800 text-xs">#{activeOrder.id}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">Total Tagihan</span>
+                    <span className="font-extrabold text-emerald-700 text-base font-display">
+                      Rp {Math.round(Number(activeOrder.total)).toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* ArtoPay Payment Details & Channels */}
+                {activeOrder.artopayQrString ? (
+                  <div className="p-3 bg-white border-2 border-emerald-500/30 rounded-2xl shadow-sm relative group">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent(activeOrder.artopayQrString)}`}
+                      alt="QRIS ArtoPay Resmi"
+                      className="w-48 h-48 rounded-xl object-contain"
+                    />
+                    <div className="mt-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      QRIS Resmi Terverifikasi Otomatis
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left">
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-2 flex items-center justify-between">
+                      <span>Metode Pembayaran Resmi ArtoPay</span>
+                      <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">Aktif</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-700 font-medium">
+                      <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <span>QRIS Dinamis</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
+                        <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                        <span>Virtual Account</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
+                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                        <span>GoPay / ShopeePay</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white p-2 rounded-xl border border-slate-100 shadow-xs">
+                        <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                        <span>Kartu Debit / Kredit</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Status Indicator */}
+                <div className="w-full flex items-center justify-center gap-2 p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-800 text-xs font-semibold">
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0" />
+                  <span>Menunggu pembayaran... (Terhubung ke Gateway ArtoPay)</span>
+                </div>
+
+                {/* Actions */}
+                <div className="w-full flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenArtopaySdk()}
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Buka Modal Pembayaran ArtoPay (SDK)</span>
+                  </button>
+
+                  {activeOrder.artopayCheckoutUrl && (
+                    <a
+                      href={activeOrder.artopayCheckoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <span>Buka Halaman Checkout ArtoPay di Tab Baru</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleCheckArtoPayStatus}
+                    disabled={artopayChecking}
+                    className="w-full py-2 text-slate-500 hover:text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${artopayChecking ? 'animate-spin' : ''}`} />
+                    <span>Periksa Status Manual</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -3824,16 +4027,28 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 {/* Action Buttons */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-2.5">
                   {activeOrder.artopayCheckoutUrl ? (
-                    <a
-                      href={activeOrder.artopayCheckoutUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                    >
-                      <QrCode className="w-4 h-4" />
-                      <span>Buka Halaman Checkout ArtoPay (Scan QRIS)</span>
-                      <ExternalLink className="w-3.5 h-3.5 ml-0.5 opacity-80" />
-                    </a>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowArtopayModal(true);
+                          handleOpenArtopaySdk();
+                        }}
+                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      >
+                        <QrCode className="w-4 h-4" />
+                        <span>Buka Pembayaran ArtoPay (Modal SDK)</span>
+                      </button>
+                      <a
+                        href={activeOrder.artopayCheckoutUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <span>Buka di Tab Baru (Payment Link)</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
                   ) : (
                     <button
                       type="button"

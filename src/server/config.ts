@@ -236,17 +236,22 @@ export const shopConfig = {
 
 // --- ARTOPAY UNIFIED PAYMENT GATEWAY CONFIGURATION ---
 const artopayEnv = (process.env.ARTOPAY_ENVIRONMENT || 'sandbox').toLowerCase();
-const artopayBaseUrl = process.env.ARTOPAY_BASE_URL || (artopayEnv === 'production' 
-  ? 'https://api.artopay.co.id' 
-  : 'https://sandbox-api.artopay.co.id');
+const defaultApiUrl = artopayEnv === 'production' 
+  ? 'https://api.arto-pay.com' 
+  : 'https://api-sandbox.arto-pay.com';
+const defaultPayUrl = artopayEnv === 'production'
+  ? 'https://pay.arto-pay.com/arto-pay'
+  : 'https://pay-sandbox.arto-pay.com/arto-pay';
 
 export const artopayConfig = {
   isProduction: process.env.NODE_ENV === 'production',
-  environment: artopayEnv as 'sandbox' | 'production',
-  apiKey: process.env.ARTOPAY_API_KEY || '',
-  secretKey: process.env.ARTOPAY_SECRET_KEY || '',
-  webhookSecret: process.env.ARTOPAY_WEBHOOK_SECRET || '',
-  baseUrl: artopayBaseUrl,
+  environment: (artopayEnv === 'production' ? 'production' : 'sandbox') as 'sandbox' | 'production',
+  apiKey: (process.env.ARTOPAY_API_KEY || '').trim(),
+  secretKey: (process.env.ARTOPAY_SECRET_KEY || '').trim(),
+  publicKey: (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim(),
+  webhookSecret: (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim(),
+  baseUrl: (process.env.ARTOPAY_BASE_URL || defaultApiUrl).trim(),
+  payBaseUrl: (process.env.ARTOPAY_PAY_URL || defaultPayUrl).trim(),
   defaultExpiryMinutes: 15
 };
 

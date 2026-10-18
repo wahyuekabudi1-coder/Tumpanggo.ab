@@ -30,6 +30,17 @@ targetFiles.forEach(file => {
       ',k(o,r,resolvedKey,a,p)'
     );
 
+    code = code.replace(
+      /,E\(o,a,I,r,p\)/g,
+      ',E(o,a,resolvedKey,r,p)'
+    );
+
+    // 3. Guard top-level document.currentScript for data-sandbox
+    code = code.replace(
+      /null===\(P=document\.currentScript\)\|\|void 0===P\?void 0:P\.getAttribute\("data-sandbox"\)/g,
+      'typeof document !== "undefined" ? (document.currentScript?.getAttribute("data-sandbox")) : undefined'
+    );
+
     fs.writeFileSync(file, code, 'utf8');
     console.log(`[ArtoPay SDK Patch] Successfully patched ${file}`);
   }

@@ -10,7 +10,7 @@ import express from 'express';
 import { foodDb } from './db';
 import { shopDb } from './shopDb';
 import { foodConfig } from './config';
-import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection } from './firebaseAdmin';
+import { isFirestoreAdminConfigured, isUsingServiceAccount, testFirestoreConnection, getFirestoreDiagnosticStatus } from './firebaseAdmin';
 import { authenticateToken } from './auth';
 import { authRouter } from './routes/authRoutes';
 import { merchantRouter } from './routes/merchantRoutes';
@@ -36,14 +36,51 @@ app.use(async (req, res, next) => {
     next();
   } catch (err: any) {
     if (foodConfig.isProduction && req.path.startsWith('/api') && !req.path.startsWith('/api/health')) {
+      const diag = getFirestoreDiagnosticStatus();
       const sanitizedDetail = typeof err?.message === 'string'
         ? err.message.replace(/(\/Users\/|\/home\/|\/var\/task\/)[^\s]+/g, '[system-path]')
         : 'Database connection failed';
 
+      // Distinguish the exact cause in user-facing message
+      let userFacingError = 'Layanan database Cloud Firestore belum terhubung.';
+      switch (diag.reason) {
+        case 'MISSING_CREDENTIALS':
+          userFacingError = 'Layanan database Cloud Firestore belum terhubung: Variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.';
+          break;
+        case 'INVALID_JSON':
+          userFacingError = 'Layanan database Cloud Firestore belum terhubung: Format FIREBASE_SERVICE_ACCOUNT_KEY di Vercel tidak dapat diparsing sebagai JSON yang valid.';
+          break;
+        case 'MALFORMED_SERVICE_ACCOUNT':
+          userFacingError = 'Layanan database Cloud Firestore belum terhubung: JSON Service Account tidak lengkap (wajib memiliki field client_email dan private_key yang sah).';
+          break;
+        case 'PROJECT_ID_MISMATCH':
+          userFacingError = `Layanan database Cloud Firestore belum terhubung: Project ID pada Service Account tidak cocok dengan target proyek aplikasi ("${diag.projectId}").`;
+          break;
+        case 'IAM_PERMISSION_DENIED':
+          userFacingError = 'Layanan database Cloud Firestore ditolak oleh Google Cloud IAM (PERMISSION_DENIED): Akun layanan belum memiliki peran Cloud Datastore User (roles/datastore.user).';
+          break;
+        case 'DATABASE_NOT_FOUND':
+          userFacingError = `Layanan database Cloud Firestore belum terhubung: Database Firestore ("${foodConfig.databaseId}") tidak ditemukan pada proyek "${diag.projectId}".`;
+          break;
+        case 'NETWORK_OR_TIMEOUT':
+          userFacingError = 'Layanan database Cloud Firestore mengalami batas waktu koneksi (TIMEOUT) atau gangguan jaringan saat menghubungi server Google Cloud.';
+          break;
+        case 'INIT_FAILED':
+          userFacingError = 'Layanan database Cloud Firestore belum terhubung: Gagal menginisialisasi Firebase Admin SDK dengan kredensial yang diberikan.';
+          break;
+        default:
+          userFacingError = `Layanan database Cloud Firestore belum terhubung: ${diag.detail || 'Koneksi database tidak tersedia.'}`;
+      }
+
       return res.status(503).json({
-        error: 'Layanan database Cloud Firestore belum terhubung. Pastikan FIREBASE_SERVICE_ACCOUNT_KEY sudah dikonfigurasi di Environment Variables Vercel.',
+        error: userFacingError,
         code: 'DATABASE_UNAVAILABLE',
-        detail: sanitizedDetail
+        reason: diag.reason,
+        detail: sanitizedDetail,
+        remediation: diag.remediation,
+        projectId: diag.projectId,
+        authIdentity: diag.authIdentity,
+        timestamp: new Date().toISOString()
       });
     }
     next();
@@ -69,6 +106,9 @@ app.get('/api/health', async (req, res) => {
       database: isHealthy ? 'connected' : 'disconnected',
       system: 'tumpang-go-ecosystem',
       environment: process.env.NODE_ENV || 'development',
+      diagnosticReason: foodStorageStatus.diagnosticReason,
+      diagnosticDetail: foodStorageStatus.diagnosticDetail,
+      remediationStep: foodStorageStatus.remediationStep,
       foodDatabase: foodStorageStatus,
       shopDatabase: shopStorageStatus,
       timestamp: new Date().toISOString()

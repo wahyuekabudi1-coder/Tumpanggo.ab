@@ -20,6 +20,37 @@ export const artopayRouter = Router();
 const processedWebhookKeys = new Set<string>();
 
 /**
+ * GET /api/artopay/config-status
+ * Checks status of ArtoPay gateway credentials and integration readiness.
+ * Safe public diagnostics: does not reveal secret keys.
+ */
+artopayRouter.get('/config-status', (_req: Request, res: Response) => {
+  const hasSecretKey = Boolean(artopayConfig.secretKey);
+  const hasPublicKey = Boolean(artopayConfig.publicKey);
+  const hasWebhookSecret = Boolean(artopayConfig.webhookSecret);
+  const isProduction = artopayConfig.isProduction || artopayConfig.environment === 'production';
+
+  const missing: string[] = [];
+  if (!hasSecretKey) missing.push('ARTOPAY_SECRET_KEY');
+  if (!hasPublicKey) missing.push('ARTOPAY_PUBLIC_KEY');
+  if (!hasWebhookSecret) missing.push('ARTOPAY_WEBHOOK_SECRET');
+
+  return res.json({
+    gatewayConfigured: hasSecretKey && hasPublicKey,
+    environment: artopayConfig.environment,
+    isProduction,
+    hasSecretKey,
+    hasPublicKey,
+    hasWebhookSecret,
+    missingCredentials: missing,
+    status: hasSecretKey && hasPublicKey ? 'READY' : 'PREPARATION_PENDING_CREDENTIALS',
+    message: hasSecretKey && hasPublicKey
+      ? 'Gateway ArtoPay telah terkonfigurasi dan siap memproses transaksi.'
+      : 'Tahap persiapan: Kredensial ArtoPay belum diisi di Environment Variables. Alur aplikasi, validasi server, dan database telah siap.'
+  });
+});
+
+/**
  * POST /api/artopay/payment-intent
  * Creates an ArtoPay dynamic QRIS payment intent.
  * Strict server-side nominal extraction from database records.
@@ -389,3 +420,515 @@ artopayRouter.get('/status/:orderId', async (req: Request, res: Response) => {
     return res.status(500).json({ error: err.message || 'Gagal memeriksa status pembayaran ArtoPay.' });
   }
 });
+
+/**
+ * POST /api/artopay/simulate-payment
+ * Safe testing endpoint for Sandbox/Preview mode.
+ * Dispatches an internal verified webhook transition for the order.
+ */
+artopayRouter.post('/simulate-payment', async (req: Request, res: Response) => {
+  try {
+    const { orderId, paymentIntentId } = req.body;
+    if (!orderId && !paymentIntentId) {
+      return res.status(400).json({ error: 'orderId atau paymentIntentId wajib diisi.' });
+    }
+
+    if (process.env.NODE_ENV === 'production' || (artopayConfig.isProduction && artopayConfig.environment === 'production')) {
+      return res.status(403).json({ error: 'Endpoint simulasi pembayaran dilarang dan dinonaktifkan di lingkungan produksi.' });
+    }
+
+    let foodOrder = orderId ? await foodDb.findOrder(String(orderId).trim()) : undefined;
+    let shopOrder: any = undefined;
+
+    if (!foodOrder && orderId) {
+      shopOrder = await shopDb.findOrderById(String(orderId).trim()) || shopDb.getOrders().find(o => o.orderNumber === String(orderId).trim());
+    }
+
+    if (!foodOrder && !shopOrder && paymentIntentId) {
+      foodOrder = foodDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
+      if (!foodOrder) {
+        shopOrder = shopDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
+      }
+    }
+
+    if (!foodOrder && !shopOrder) {
+      return res.status(404).json({ error: 'Pesanan untuk pembayaran ini tidak ditemukan.' });
+    }
+
+    const isFood = !!foodOrder;
+    const target = isFood ? foodOrder! : shopOrder!;
+    const serverTotal = Math.round(Number(target.total));
+    const paidAt = new Date().toISOString();
+
+    if (isFood) {
+      await foodDb.updateOrder('SIMULATED_ARTOPAY_WEBHOOK', target.id, {
+        status: OrderStatus.PAYMENT_VERIFIED,
+        paymentMethod: 'ARTOPAY_QRIS',
+        artopayStatus: 'SUCCESS',
+        paymentVerifiedAt: paidAt
+      }, 'SYSTEM');
+    } else {
+      await shopDb.verifyPayment('SIMULATED_ARTOPAY_WEBHOOK', target.id, true);
+      await shopDb.attachArtopayPayment(target.id, {
+        paymentMethod: 'ARTOPAY_QRIS',
+        artopayPaymentId: paymentIntentId || target.artopayPaymentId || `sim_${Date.now()}`,
+        artopayCheckoutUrl: target.artopayCheckoutUrl || '',
+        artopayStatus: 'SUCCESS',
+        artopayExpiredAt: target.artopayExpiredAt
+      });
+    }
+
+    return res.json({
+      success: true,
+      orderId: target.id,
+      amount: serverTotal,
+      status: 'PAID',
+      message: 'Pembayaran ArtoPay berhasil disimulasikan dan diverifikasi.'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || 'Gagal mensimulasikan pembayaran.' });
+  }
+});
+
+/**
+ * GET /api/artopay/checkout/:paymentIntentId
+ * GET /api/artopay/demo-pay/:paymentIntentId
+ * Interactive hosted payment checkout page for ArtoPay Payment Link in Preview / Sandbox.
+ */
+const renderCheckoutPage = async (req: Request, res: Response) => {
+  const paymentIntentId = req.params.paymentIntentId;
+  const orderParam = (req.query.order as string) || '';
+  const amtParam = Number(req.query.amt) || 0;
+  const serviceParam = ((req.query.service as string) || 'FOOD').toUpperCase();
+
+  let foodOrder = orderParam ? await foodDb.findOrder(orderParam) : undefined;
+  let shopOrder: any = undefined;
+
+  if (!foodOrder && orderParam) {
+    shopOrder = await shopDb.findOrderById(orderParam) || shopDb.getOrders().find(o => o.orderNumber === orderParam);
+  }
+
+  if (!foodOrder && !shopOrder && paymentIntentId) {
+    foodOrder = foodDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
+    if (!foodOrder) {
+      shopOrder = shopDb.getOrders().find(o => o.artopayPaymentId === paymentIntentId);
+    }
+  }
+
+  const isFood = !!foodOrder;
+  const targetOrder = isFood ? foodOrder : shopOrder;
+  const resolvedOrderId = targetOrder ? targetOrder.id : orderParam || paymentIntentId;
+  const resolvedAmount = targetOrder ? Math.round(Number(targetOrder.total)) : amtParam || 10000;
+  const customerName = targetOrder ? (targetOrder.customerName || 'Pelanggan TumpangGo') : 'Pelanggan TumpangGo';
+  const serviceTitle = isFood || serviceParam === 'FOOD' ? 'Tumpang Food' : 'Tumpang Shop';
+  const formattedAmount = `Rp ${resolvedAmount.toLocaleString('id-ID')}`;
+  const isProduction = artopayConfig.isProduction && artopayConfig.environment === 'production';
+
+  // Use genuine QR code if provided by gateway, otherwise display active payment channels
+  const qrString = targetOrder?.artopayQrString || (req.query.qr as string) || '';
+  const qrImageUrl = qrString ? `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=10&data=${encodeURIComponent(qrString)}` : '';
+
+  const html = `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout Pembayaran ArtoPay - TumpangGo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: linear-gradient(135deg, #064E3B 0%, #065F46 40%, #047857 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      color: #1F2937;
+    }
+    .card {
+      background: #FFFFFF;
+      max-width: 440px;
+      width: 100%;
+      border-radius: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      animation: fadeIn 0.3s ease-out;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .header {
+      background: #F0FDF4;
+      padding: 20px 24px;
+      border-bottom: 1px solid #DCFCE7;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      background: #15803D;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-weight: 800;
+      font-size: 18px;
+    }
+    .brand-title {
+      font-weight: 800;
+      font-size: 16px;
+      color: #166534;
+      letter-spacing: -0.02em;
+    }
+    .brand-sub {
+      font-size: 11px;
+      color: #047857;
+      font-weight: 600;
+    }
+    .secure-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #DCFCE7;
+      color: #166534;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .body {
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    .order-meta {
+      width: 100%;
+      background: #F8FAFC;
+      border: 1px solid #E2E8F0;
+      border-radius: 14px;
+      padding: 12px 16px;
+      margin-bottom: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+    .amount-box {
+      margin-bottom: 18px;
+    }
+    .amount-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748B;
+      margin-bottom: 4px;
+    }
+    .amount-val {
+      font-size: 28px;
+      font-weight: 800;
+      color: #0F172A;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+    .qr-container {
+      background: #FFFFFF;
+      padding: 14px;
+      border-radius: 18px;
+      border: 2px solid #E2E8F0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .qr-image {
+      display: block;
+      width: 200px;
+      height: 200px;
+      border-radius: 10px;
+    }
+    .qr-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #F1F5F9;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 12px;
+      border-radius: 8px;
+      margin-bottom: 16px;
+    }
+    .status-box {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .status-pending {
+      background: #FEF3C7;
+      color: #92400E;
+      border: 1px solid #FDE68A;
+    }
+    .status-success {
+      background: #DCFCE7;
+      color: #166534;
+      border: 1px solid #BBF7D0;
+    }
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background: #D97706;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .actions {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+    }
+    .btn-simulate {
+      background: #16A34A;
+      color: white;
+      box-shadow: 0 4px 10px rgba(22, 163, 74, 0.25);
+    }
+    .btn-simulate:hover { background: #15803D; }
+    .btn-secondary {
+      background: #F1F5F9;
+      color: #334155;
+    }
+    .btn-secondary:hover { background: #E2E8F0; }
+    .footer-note {
+      margin-top: 16px;
+      font-size: 11px;
+      color: #94A3B8;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="brand">
+        <div class="brand-logo">T</div>
+        <div style="text-align: left;">
+          <div class="brand-title">tumpangGo</div>
+          <div class="brand-sub">${serviceTitle} Checkout</div>
+        </div>
+      </div>
+      <div class="secure-badge">
+        🔒 ArtoPay Verified
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="order-meta">
+        <div>
+          <div style="color: #64748B; font-size: 11px;">Nomor Pesanan</div>
+          <div style="font-weight: 700; color: #0F172A;">${resolvedOrderId}</div>
+        </div>
+        <div style="text-align: right;">
+          <div style="color: #64748B; font-size: 11px;">Pelanggan</div>
+          <div style="font-weight: 700; color: #0F172A;">${customerName}</div>
+        </div>
+      </div>
+
+      <div class="amount-box">
+        <div class="amount-label">Total Tagihan</div>
+        <div class="amount-val">${formattedAmount}</div>
+      </div>
+
+      ${qrImageUrl ? `
+      <div class="qr-container">
+        <img class="qr-image" src="${qrImageUrl}" alt="ArtoPay QRIS Code" />
+      </div>
+      <div class="qr-badge">
+        📱 Scan menggunakan GoPay, OVO, Dana, ShopeePay, atau m-Banking
+      </div>
+      ` : `
+      <div style="width: 100%; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 14px; padding: 14px; margin-bottom: 16px; text-align: left;">
+        <div style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 8px;">Metode Pembayaran ArtoPay:</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: #334155;">
+          <span style="background: white; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px; font-weight: 600;">QRIS Dinamis</span>
+          <span style="background: white; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px; font-weight: 600;">Virtual Account</span>
+          <span style="background: white; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px; font-weight: 600;">GoPay / ShopeePay</span>
+          <span style="background: white; border: 1px solid #CBD5E1; padding: 4px 8px; border-radius: 6px; font-weight: 600;">Kartu Debit / Kredit</span>
+        </div>
+      </div>
+      `}
+
+      <div id="status-box" class="status-box status-pending">
+        <div class="pulse-dot" id="pulse-dot"></div>
+        <span id="status-text">Menunggu Pembayaran ArtoPay...</span>
+      </div>
+
+      <div class="actions">
+        ${!isProduction ? `
+        <button id="btn-simulate" type="button" class="btn btn-simulate" onclick="simulatePayment()">
+          ⚡ Verifikasi Pembayaran (Sandbox Test)
+        </button>
+        ` : ''}
+        <button type="button" class="btn btn-secondary" onclick="checkStatusManual()">
+          🔄 Periksa Status Sekarang
+        </button>
+        <button type="button" class="btn btn-secondary" onclick="returnToApp()">
+          ⬅ Kembali ke Aplikasi TumpangGo
+        </button>
+      </div>
+
+      <div class="footer-note">
+        Pembayaran diamankan dengan enkripsi standar ArtoPay Payment Gateway. Halaman akan otomatis beralih setelah transaksi terkonfirmasi.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const orderId = ${JSON.stringify(resolvedOrderId)};
+    const paymentIntentId = ${JSON.stringify(paymentIntentId)};
+    const serviceType = ${JSON.stringify(serviceParam)};
+    let isFinished = false;
+
+    async function checkStatus() {
+      if (isFinished) return;
+      try {
+        const res = await fetch('/api/artopay/status/' + encodeURIComponent(orderId) + '?serviceType=' + encodeURIComponent(serviceType));
+        if (res.ok) {
+          const data = await res.json();
+          if (data.isPaid || data.status === 'PAID' || data.status === 'PAYMENT_VERIFIED') {
+            onPaymentSuccess();
+          }
+        }
+      } catch (err) {
+        console.warn('Status poll error:', err);
+      }
+    }
+
+    async function checkStatusManual() {
+      const btn = event.target;
+      btn.innerText = 'Memeriksa...';
+      await checkStatus();
+      setTimeout(() => { btn.innerText = '🔄 Periksa Status Sekarang'; }, 1000);
+    }
+
+    async function simulatePayment() {
+      const btn = document.getElementById('btn-simulate');
+      btn.disabled = true;
+      btn.innerText = 'Memproses simulasi...';
+      try {
+        const res = await fetch('/api/artopay/simulate-payment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: orderId,
+            paymentIntentId: paymentIntentId,
+            serviceType: serviceType
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          onPaymentSuccess();
+        } else {
+          alert(data.error || 'Gagal mensimulasikan pembayaran.');
+          btn.disabled = false;
+          btn.innerText = '⚡ Simulasikan Pembayaran Berhasil (Uji Coba Sandbox)';
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan jaringan.');
+        btn.disabled = false;
+        btn.innerText = '⚡ Simulasikan Pembayaran Berhasil (Uji Coba Sandbox)';
+      }
+    }
+
+    function onPaymentSuccess() {
+      isFinished = true;
+      const statusBox = document.getElementById('status-box');
+      const pulseDot = document.getElementById('pulse-dot');
+      const statusText = document.getElementById('status-text');
+      const simBtn = document.getElementById('btn-simulate');
+
+      if (pulseDot) pulseDot.style.display = 'none';
+      if (statusBox) {
+        statusBox.className = 'status-box status-success';
+        statusText.innerHTML = '✅ Pembayaran Berhasil Terverifikasi!';
+      }
+      if (simBtn) {
+        simBtn.style.display = 'none';
+      }
+
+      // Notify parent window if in iframe or opened popup
+      try {
+        if (window.opener) {
+          window.opener.postMessage({ type: 'PAYMENT_SUCCESS', orderId: orderId, paymentIntentId: paymentIntentId }, '*');
+        }
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'PAYMENT_SUCCESS', orderId: orderId, paymentIntentId: paymentIntentId }, '*');
+        }
+      } catch (e) {}
+
+      setTimeout(() => {
+        returnToApp();
+      }, 2500);
+    }
+
+    function returnToApp() {
+      if (window.opener) {
+        window.close();
+      } else if (history.length > 1) {
+        history.back();
+      } else {
+        window.location.href = '/';
+      }
+    }
+
+    // Auto-poll status every 3 seconds
+    setInterval(checkStatus, 3000);
+  </script>
+</body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+};
+
+artopayRouter.get('/checkout/:paymentIntentId', renderCheckoutPage);
+artopayRouter.get('/demo-pay/:paymentIntentId', renderCheckoutPage);
