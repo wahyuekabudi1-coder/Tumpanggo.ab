@@ -112,6 +112,9 @@ export interface ShopOrder {
   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
   artopayExpiredAt?: string;
   artopayQrString?: string;
+  artopayClientSecret?: string;
+  artopayCustomerToken?: string;
+  artopayPublicKey?: string;
   shipment?: ShopShipment;
   createdAt: string;
   updatedAt: string;

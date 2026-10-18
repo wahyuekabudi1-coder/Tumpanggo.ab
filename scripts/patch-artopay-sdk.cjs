@@ -25,14 +25,24 @@ targetFiles.forEach(file => {
       `const resolvedKey = n.publicKey || I || (typeof window !== "undefined" ? (window.__ARTOPAY_PUBLIC_KEY__ || window.VITE_ARTOPAY_PUBLIC_KEY || (document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") && !document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key")?.startsWith("%") ? document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") : undefined)) : undefined) || ${envKeyExpr}; if(!resolvedKey) throw new Error("[arto-pay/js-sdk] Payment publicKey is required");`
     );
 
+    // 2.1 Support both secret and clientSecret from official docs
+    code = code.replace(
+      /if\(!o\)throw new Error\("\[arto-pay\/js-sdk\] Payment clientSecret is required"\);/g,
+      'const resolvedSecret = o || n.secret; if(!resolvedSecret) throw new Error("[arto-pay/js-sdk] Payment clientSecret is required");'
+    );
+    code = code.replace(
+      /,E\(o,/g,
+      ',E(resolvedSecret,'
+    );
+
     code = code.replace(
       /,k\(o,r,I,a,p\)/g,
-      ',k(o,r,resolvedKey,a,p)'
+      ',k(resolvedSecret,r,resolvedKey,a,p)'
     );
 
     code = code.replace(
       /,E\(o,a,I,r,p\)/g,
-      ',E(o,a,resolvedKey,r,p)'
+      ',E(resolvedSecret,a,resolvedKey,r,p)'
     );
 
     // 3. Guard top-level document.currentScript for data-sandbox

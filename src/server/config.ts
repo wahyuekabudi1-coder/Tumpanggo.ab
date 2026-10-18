@@ -12,6 +12,10 @@ import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config();
+const localEnvPath = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(localEnvPath)) {
+  dotenv.config({ path: localEnvPath, override: true });
+}
 
 // Determine runtime JWT Secret
 let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
@@ -234,24 +238,47 @@ export const shopConfig = {
   }
 };
 
-// --- ARTOPAY UNIFIED PAYMENT GATEWAY CONFIGURATION ---
-const artopayEnv = (process.env.ARTOPAY_ENVIRONMENT || 'sandbox').toLowerCase();
-const defaultApiUrl = artopayEnv === 'production' 
-  ? 'https://api.arto-pay.com' 
-  : 'https://api-sandbox.arto-pay.com';
-const defaultPayUrl = artopayEnv === 'production'
-  ? 'https://pay.arto-pay.com/arto-pay'
-  : 'https://pay-sandbox.arto-pay.com/arto-pay';
+export function reloadEnv() {
+  dotenv.config();
+  const localEnvPath = path.resolve(process.cwd(), '.env.local');
+  if (fs.existsSync(localEnvPath)) {
+    dotenv.config({ path: localEnvPath, override: true });
+  }
+}
 
+// --- ARTOPAY UNIFIED PAYMENT GATEWAY CONFIGURATION ---
 export const artopayConfig = {
-  isProduction: process.env.NODE_ENV === 'production',
-  environment: (artopayEnv === 'production' ? 'production' : 'sandbox') as 'sandbox' | 'production',
-  apiKey: (process.env.ARTOPAY_API_KEY || '').trim(),
-  secretKey: (process.env.ARTOPAY_SECRET_KEY || '').trim(),
-  publicKey: (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim(),
-  webhookSecret: (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim(),
-  baseUrl: (process.env.ARTOPAY_BASE_URL || defaultApiUrl).trim(),
-  payBaseUrl: (process.env.ARTOPAY_PAY_URL || defaultPayUrl).trim(),
+  get isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
+  },
+  get environment(): 'sandbox' | 'production' {
+    const env = (process.env.ARTOPAY_ENVIRONMENT || 'sandbox').toLowerCase().trim();
+    return env === 'production' ? 'production' : 'sandbox';
+  },
+  get apiKey(): string {
+    return (process.env.ARTOPAY_API_KEY || '').trim();
+  },
+  get secretKey(): string {
+    return (process.env.ARTOPAY_SECRET_KEY || '').trim();
+  },
+  get publicKey(): string {
+    return (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim();
+  },
+  get webhookSecret(): string {
+    return (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim();
+  },
+  get baseUrl(): string {
+    const defaultApiUrl = this.environment === 'production'
+      ? 'https://api.arto-pay.com'
+      : 'https://api-sandbox.arto-pay.com';
+    return (process.env.ARTOPAY_BASE_URL || defaultApiUrl).trim();
+  },
+  get payBaseUrl(): string {
+    const defaultPayUrl = this.environment === 'production'
+      ? 'https://pay.arto-pay.com/arto-pay'
+      : 'https://pay-sandbox.arto-pay.com/arto-pay';
+    return (process.env.ARTOPAY_PAY_URL || defaultPayUrl).trim();
+  },
   defaultExpiryMinutes: 15
 };
 

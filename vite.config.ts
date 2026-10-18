@@ -11,6 +11,9 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    define: {
+      'import.meta.env.VITE_ARTOPAY_PUBLIC_KEY': JSON.stringify(process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || ''),
+    },
     server: {
       host: '0.0.0.0',
       port: 3000,

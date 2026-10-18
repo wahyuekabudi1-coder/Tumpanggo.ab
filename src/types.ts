@@ -130,6 +130,9 @@ export interface Order {
   artopayStatus?: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
   artopayExpiredAt?: string;
   artopayQrString?: string;
+  artopayClientSecret?: string;
+  artopayCustomerToken?: string;
+  artopayPublicKey?: string;
   paymentVerifiedAt?: string;
 }
 

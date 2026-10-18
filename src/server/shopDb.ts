@@ -1198,6 +1198,9 @@ export class ShopDatabase {
       artopayCheckoutUrl: string;
       artopayStatus: 'PENDING' | 'SUCCESS' | 'FAILED' | 'EXPIRED';
       artopayExpiredAt?: string;
+      artopayClientSecret?: string;
+      artopayCustomerToken?: string;
+      artopayPublicKey?: string;
     }
   ): Promise<ShopOrder> {
     const index = this.data.orders.findIndex(o => o.id === orderId || o.orderNumber === orderId);
@@ -1211,6 +1214,15 @@ export class ShopDatabase {
     order.artopayStatus = artopayData.artopayStatus;
     if (artopayData.artopayExpiredAt) {
       order.artopayExpiredAt = artopayData.artopayExpiredAt;
+    }
+    if (artopayData.artopayClientSecret) {
+      order.artopayClientSecret = artopayData.artopayClientSecret;
+    }
+    if (artopayData.artopayCustomerToken) {
+      order.artopayCustomerToken = artopayData.artopayCustomerToken;
+    }
+    if (artopayData.artopayPublicKey) {
+      order.artopayPublicKey = artopayData.artopayPublicKey;
     }
     order.updatedAt = new Date().toISOString();
 

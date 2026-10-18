@@ -8,6 +8,15 @@
 
 import path from 'path';
 import fs from 'fs';
+import dotenv from 'dotenv';
+
+// Load environment variables early (.env and .env.local)
+dotenv.config();
+const localEnv = path.resolve(process.cwd(), '.env.local');
+if (fs.existsSync(localEnv)) {
+  dotenv.config({ path: localEnv, override: true });
+}
+
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { app } from './src/server/app';
