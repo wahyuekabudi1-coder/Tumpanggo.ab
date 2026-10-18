@@ -135,7 +135,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         description: `Pembayaran Tumpang Food #${verifiedOrderId} (${order.merchantName})`,
         expiryMinutes: 15,
         callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
-        returnUrl: req.body.returnUrl || `${origin}/?tab=tracking&orderId=${verifiedOrderId}`
+        returnUrl: req.body.returnUrl || `${origin}/?tab=tracking&orderId=${verifiedOrderId}`,
+        allowSdkModal: true
       });
 
       // Attach ArtoPay payment details to Food Order
@@ -206,7 +207,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         description: `Pembayaran Tumpang Shop #${order.orderNumber || verifiedOrderId}`,
         expiryMinutes: 20,
         callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
-        returnUrl: req.body.returnUrl || `${origin}/?page=shop&orderId=${order.orderNumber || verifiedOrderId}&tab=tracking`
+        returnUrl: req.body.returnUrl || `${origin}/?page=shop&orderId=${order.orderNumber || verifiedOrderId}&tab=tracking`,
+        allowSdkModal: true
       });
 
       // Attach ArtoPay payment details to Shop Order

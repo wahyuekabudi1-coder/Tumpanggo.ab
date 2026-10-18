@@ -143,8 +143,9 @@ async function runGatewayContractTests() {
   };
   const mockFetch3 = createMockFetch(200, JSON.stringify(mockRealArtoPayContract));
 
+  // 1. Uji Kontrak Standar SDK Modal (Tanpa Mewajibkan checkoutUrl)
   try {
-    await ArtoPayService.createPaymentIntent({
+    const res3 = await ArtoPayService.createPaymentIntent({
       orderId: 'ord_test_003',
       amount: 15000,
       currency: 'IDR',
@@ -153,11 +154,41 @@ async function runGatewayContractTests() {
       serviceType: 'FOOD',
       customFetch: mockFetch3
     });
-    assert(false, 'Harus menolak mengklaim keberhasilan payment link saat URL checkout tidak ada');
+
+    assert(res3.success === true, 'Sesi modal SDK berhasil dibuat tanpa mewajibkan checkoutUrl');
+    assert(res3.paymentIntentId === '8390c046-bea2-4538-8e29-424fc34a0942', 'ID transaksi modal diekstraksi dengan benar (8390c046...)');
+    assert(res3.clientSecret === 'pi_011ee427-62cb-46eb-a1bf-6f20f1c63c72_secret_sample', 'Payment intent client secret diekstraksi untuk modal SDK');
+    assert(res3.customerToken === 'ct_8390c046-bea2-4538-8e29-424fc34a0942_token_sample', 'Customer token diekstraksi untuk modal SDK');
+    assert(res3.checkoutUrl === '', 'checkoutUrl bernilai kosong tanpa membuat URL tebakan/palsu');
+    assert(
+      findArtoPayCheckoutUrlField(mockRealArtoPayContract) === null,
+      'Helper mendeteksi ketiadaan checkout URL (return null)'
+    );
+    assert(
+      extractArtoPayCheckoutUrl(mockRealArtoPayContract) === null,
+      'Extractor checkout URL mengembalikan null tanpa membuat URL tebakan/palsu'
+    );
+  } catch (e: any) {
+    assert(false, 'Harus berhasil membuat sesi transaksi untuk modal SDK resmi', e.message);
+  }
+
+  // 2. Uji Penolakan jika Alur Secara Eksplisit Mewajibkan Hosted Payment Link (requireHostedCheckoutUrl)
+  try {
+    await ArtoPayService.createPaymentIntent({
+      orderId: 'ord_test_003_hosted_only',
+      amount: 15000,
+      currency: 'IDR',
+      customerName: 'Customer Tiga',
+      customerPhone: '081234567892',
+      serviceType: 'FOOD',
+      requireHostedCheckoutUrl: true,
+      customFetch: mockFetch3
+    });
+    assert(false, 'Harus menolak saat requireHostedCheckoutUrl diaktifkan namun gateway tidak menyediakan link');
   } catch (e: any) {
     assert(
       e.message.includes('tidak memuat URL checkout resmi'),
-      'Backend menolak transaksi tanpa checkout URL dengan pesan diagnostik yang jelas',
+      'Backend menolak transaksi saat requireHostedCheckoutUrl aktif tanpa link resmi',
       e.message
     );
     assert(
@@ -169,14 +200,6 @@ async function runGatewayContractTests() {
       e.message.includes('HTTP 200'),
       'Pesan diagnostik membedakan status HTTP 200 dengan ketiadaan payment link',
       e.message
-    );
-    assert(
-      findArtoPayCheckoutUrlField(mockRealArtoPayContract) === null,
-      'Helper mendeteksi ketiadaan checkout URL (return null)'
-    );
-    assert(
-      extractArtoPayCheckoutUrl(mockRealArtoPayContract) === null,
-      'Extractor checkout URL mengembalikan null tanpa membuat URL tebakan/palsu'
     );
   }
 

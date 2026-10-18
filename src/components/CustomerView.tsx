@@ -1307,13 +1307,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       }
 
       const checkoutUrl = String(data.checkoutUrl || '').trim();
-      if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
-        throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
-      }
+      const paymentIntentId = data.paymentIntentId || data.id;
 
       const updatedOrder: Order = {
         ...activeOrder,
-        artopayPaymentId: data.paymentIntentId,
+        artopayPaymentId: paymentIntentId,
         artopayCheckoutUrl: checkoutUrl,
         artopayClientSecret: data.clientSecret,
         artopayCustomerToken: data.customerToken,
@@ -1324,13 +1322,28 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       };
       setActiveOrder(updatedOrder);
 
-      setArtopayStatusMsg({
-        type: 'success',
-        text: 'Payment link ArtoPay resmi aktif. Mengalihkan ke halaman checkout resmi gateway...'
-      });
+      // If gateway returns a hosted checkout URL, redirect
+      if (checkoutUrl && checkoutUrl.startsWith('http')) {
+        setArtopayStatusMsg({
+          type: 'success',
+          text: 'Mengalihkan ke halaman checkout resmi gateway...'
+        });
+        window.location.href = checkoutUrl;
+        return;
+      }
 
-      // Redirect customer directly to official ArtoPay hosted payment link
-      window.location.href = checkoutUrl;
+      // Standard ArtoPay SDK modal flow (Smart Journey reference mechanism)
+      setArtopayStatusMsg({
+        type: 'info',
+        text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...'
+      });
+      handleOpenArtopaySdk(
+        paymentIntentId,
+        data.clientSecret,
+        data.customerToken,
+        data.publicKey,
+        data.sandbox
+      );
     } catch (err: any) {
       clearTimeout(timeoutTimer);
       console.error('[ArtoPay Error]', err);
@@ -2096,6 +2109,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       <ExternalLink className="w-4 h-4" />
                       <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
                     </a>
+                  ) : activeOrder?.artopayPaymentId && activeOrder?.artopayClientSecret ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowArtopayModal(false);
+                        handleOpenArtopaySdk();
+                      }}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -2106,7 +2131,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
                       <QrCode className="w-4 h-4" />
-                      <span>Bayar via ArtoPay (Payment Link)</span>
+                      <span>Bayar via ArtoPay (QRIS)</span>
                     </button>
                   )}
 
@@ -4075,6 +4100,16 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                         <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
                       </a>
                     </div>
+                  ) : activeOrder.artopayPaymentId && activeOrder.artopayClientSecret ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenArtopaySdk()}
+                      disabled={artopayLoading}
+                      className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -4085,12 +4120,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       {artopayLoading ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Menyiapkan Payment Link ArtoPay...</span>
+                          <span>Menyiapkan Sesi Pembayaran ArtoPay...</span>
                         </>
                       ) : (
                         <>
                           <QrCode className="w-4 h-4" />
-                          <span>Bayar Sekarang via ArtoPay (Payment Link)</span>
+                          <span>Bayar Sekarang via ArtoPay (QRIS)</span>
                         </>
                       )}
                     </button>

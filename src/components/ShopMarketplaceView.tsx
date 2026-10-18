@@ -642,17 +642,31 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
       }
 
       const checkoutUrl = String(data.checkoutUrl || '').trim();
-      if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
-        throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
+      const paymentIntentId = data.paymentIntentId || data.id;
+
+      // If gateway returns a hosted checkout URL, redirect
+      if (checkoutUrl && checkoutUrl.startsWith('http')) {
+        setArtopayStatusMsg({
+          type: 'success',
+          text: 'Mengalihkan ke halaman checkout resmi gateway...'
+        });
+        window.location.href = checkoutUrl;
+        return;
       }
 
+      // Standard ArtoPay SDK modal flow (Smart Journey reference mechanism)
       setArtopayStatusMsg({
-        type: 'success',
-        text: 'Payment link ArtoPay resmi aktif. Mengalihkan ke halaman checkout resmi gateway...'
+        type: 'info',
+        text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...'
       });
-
-      // Redirect customer directly to official ArtoPay hosted payment link
-      window.location.href = checkoutUrl;
+      handleOpenArtopayShopSdk(
+        orderToPay,
+        paymentIntentId,
+        data.clientSecret,
+        data.customerToken,
+        data.publicKey,
+        data.sandbox
+      );
     } catch (err: any) {
       clearTimeout(timeoutTimer);
       console.error('[ArtoPay Shop Error]', err);
@@ -1443,6 +1457,16 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                       <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
                     </a>
                   </div>
+                ) : activeOrder.artopayPaymentId && activeOrder.artopayClientSecret ? (
+                  <button
+                    type="button"
+                    onClick={() => handleOpenArtopayShopSdk(activeOrder)}
+                    disabled={artopayLoading}
+                    className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <QrCode className="w-4 h-4" />
+                    <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
+                  </button>
                 ) : (
                   <button
                     type="button"
@@ -1453,12 +1477,12 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                     {artopayLoading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Menyiapkan Payment Link ArtoPay...</span>
+                        <span>Menyiapkan Sesi Pembayaran ArtoPay...</span>
                       </>
                     ) : (
                       <>
                         <QrCode className="w-4 h-4" />
-                        <span>Bayar Sekarang via ArtoPay (Payment Link)</span>
+                        <span>Bayar Sekarang via ArtoPay (QRIS)</span>
                       </>
                     )}
                   </button>
@@ -2013,6 +2037,16 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                         <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
                       </a>
                     </div>
+                  ) : trackedOrder.artopayPaymentId && trackedOrder.artopayClientSecret ? (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenArtopayShopSdk(trackedOrder)}
+                      disabled={artopayLoading}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-3.5 h-3.5" />
+                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -2023,12 +2057,12 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                       {artopayLoading ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Menyiapkan Payment Link ArtoPay...</span>
+                          <span>Menyiapkan Sesi Pembayaran ArtoPay...</span>
                         </>
                       ) : (
                         <>
                           <QrCode className="w-3.5 h-3.5" />
-                          <span>Bayar via ArtoPay (Payment Link)</span>
+                          <span>Bayar via ArtoPay (QRIS)</span>
                         </>
                       )}
                     </button>
@@ -2746,6 +2780,18 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                       <ExternalLink className="w-4 h-4" />
                       <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
                     </a>
+                  ) : modalOrder.artopayPaymentId && modalOrder.artopayClientSecret ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowArtopayModal(false);
+                        handleOpenArtopayShopSdk(modalOrder);
+                      }}
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Buka Modal Pembayaran ArtoPay (QRIS)</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -2756,7 +2802,7 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                       className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
                       <QrCode className="w-4 h-4" />
-                      <span>Buat Payment Link ArtoPay</span>
+                      <span>Bayar via ArtoPay (QRIS)</span>
                     </button>
                   )}
 

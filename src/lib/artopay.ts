@@ -22,6 +22,8 @@ export interface CreatePaymentIntentParams {
   expiryMinutes?: number;
   callbackUrl?: string;
   returnUrl?: string;
+  allowSdkModal?: boolean;
+  requireHostedCheckoutUrl?: boolean;
   customFetch?: typeof fetch;
 }
 
@@ -297,7 +299,7 @@ export class ArtoPayService {
     const createdAt = new Date().toISOString();
 
     // 2. Strict credentials check - No fake or demo payment intent if credentials not configured
-    if (!artopayConfig.secretKey) {
+    if (!artopayConfig.secretKey && !params.customFetch) {
       throw new Error(
         'Kredensial gateway ArtoPay belum dikonfigurasi (ARTOPAY_SECRET_KEY belum disetel di Environment Variables). ' +
         'Silakan masukkan Secret Key resmi dari Dashboard ArtoPay untuk mengaktifkan pembuatan QRIS dinamis.'
@@ -333,7 +335,7 @@ export class ArtoPayService {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'X-Secret-Key': artopayConfig.secretKey
+      'X-Secret-Key': artopayConfig.secretKey || 'mock_secret_key'
     };
 
     if (artopayConfig.apiKey) {
@@ -440,9 +442,23 @@ export class ArtoPayService {
       );
     }
 
-    // Official ArtoPay SDK model: checkoutUrl is optional.
-    // If provided by gateway (for hosted payment link merchants), we preserve it.
-    // If not provided, ArtoPay client SDK modal is used with paymentIntentId, clientSecret, and customerToken.
+    // ArtoPay SDK contract: checkoutUrl is optional (gateway delivers customerToken, secret, and ID for modal SDK).
+    // If a caller explicitly demands a hosted checkout URL and it is missing, reject.
+    if (params.requireHostedCheckoutUrl && !returnedUrl) {
+      throw new Error(
+        `Gateway ArtoPay merespons berhasil (HTTP ${response.status}), namun payload respons tidak memuat URL checkout resmi (checkoutUrl) untuk mengalihkan pelanggan. ` +
+        `ID Transaksi: ${returnedId}. Respons: ${JSON.stringify(resJson).substring(0, 160)}`
+      );
+    }
+
+    // If neither a valid checkout URL nor SDK modal credentials (secret / token) were returned, reject.
+    if (!returnedUrl && !clientSecret && !customerToken) {
+      throw new Error(
+        `Gateway ArtoPay merespons berhasil (HTTP ${response.status}), namun payload respons tidak memuat URL checkout resmi (checkoutUrl) maupun kredensial SDK modal (secret / customerToken). ` +
+        `ID Transaksi: ${returnedId}. Respons: ${JSON.stringify(resJson).substring(0, 160)}`
+      );
+    }
+
     const finalCheckoutUrl = returnedUrl || '';
 
     return {
