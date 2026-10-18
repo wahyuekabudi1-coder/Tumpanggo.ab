@@ -30,8 +30,16 @@ authRouter.post('/login', (req: Request, res: Response) => {
 
   // 1. ADMIN LOGIN
   if (role === 'ADMIN') {
-    if (foodConfig.isProduction && cleanPass === 'TumpangGoAdmin#2026') {
-      return res.status(401).json({ error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur FOOD_ADMIN_PASSWORD di environment variable.' });
+    if (foodConfig.isProduction) {
+      if (!foodConfig.adminPassword || foodConfig.adminPassword.length < 8) {
+        return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables Vercel.' });
+      }
+      if (!foodConfig.jwtSecret || foodConfig.jwtSecret.length < 32) {
+        return res.status(500).json({ error: 'Autentikasi admin dinonaktifkan: FOOD_AUTH_SECRET belum dikonfigurasi di Environment Variables Vercel.' });
+      }
+      if (cleanPass === 'TumpangGoAdmin#2026') {
+        return res.status(401).json({ error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur FOOD_ADMIN_PASSWORD di environment variable.' });
+      }
     }
 
     const isTargetAdmin = isAdminEmail(cleanUser);

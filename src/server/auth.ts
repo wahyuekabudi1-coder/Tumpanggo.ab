@@ -64,6 +64,11 @@ export function verifyPassword(password: string, storedHash?: string): { valid: 
  * Create HMAC-SHA256 signed JWT token.
  */
 export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
+  const secret = foodConfig.jwtSecret;
+  if (!secret || secret.length < 32) {
+    throw new Error('Konfigurasi FOOD_AUTH_SECRET belum disetel atau kurang dari 32 karakter.');
+  }
+
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(
     JSON.stringify({
@@ -73,7 +78,7 @@ export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
   ).toString('base64url');
 
   const signature = crypto
-    .createHmac('sha256', foodConfig.jwtSecret)
+    .createHmac('sha256', secret)
     .update(`${header}.${payload}`)
     .digest('base64url');
 
@@ -84,6 +89,11 @@ export function createAuthToken(user: AuthUser, expiresInHours = 72): string {
  * Create HMAC-SHA256 signed JWT token specifically for Tumpang Shop Admin.
  */
 export function createShopAuthToken(user: AuthUser, expiresInHours = 72): string {
+  const secret = shopConfig.jwtSecret;
+  if (!secret || secret.length < 32) {
+    throw new Error('Konfigurasi SHOP_AUTH_SECRET belum disetel atau kurang dari 32 karakter.');
+  }
+
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
   const payload = Buffer.from(
     JSON.stringify({
@@ -94,7 +104,7 @@ export function createShopAuthToken(user: AuthUser, expiresInHours = 72): string
   ).toString('base64url');
 
   const signature = crypto
-    .createHmac('sha256', shopConfig.jwtSecret)
+    .createHmac('sha256', secret)
     .update(`${header}.${payload}`)
     .digest('base64url');
 
@@ -113,19 +123,22 @@ export function verifyAuthToken(token: string): AuthUser | null {
     if (parts.length !== 3) return null;
     const [header, payload, signature] = parts;
 
-    // Check with food secret first
-    const foodSig = crypto
-      .createHmac('sha256', foodConfig.jwtSecret)
-      .update(`${header}.${payload}`)
-      .digest('base64url');
-
     let isValid = false;
-    if (signature.length === foodSig.length) {
-      isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(foodSig));
+
+    // Check with food secret first if secret is configured
+    if (foodConfig.jwtSecret && foodConfig.jwtSecret.length >= 16) {
+      const foodSig = crypto
+        .createHmac('sha256', foodConfig.jwtSecret)
+        .update(`${header}.${payload}`)
+        .digest('base64url');
+
+      if (signature.length === foodSig.length) {
+        isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(foodSig));
+      }
     }
 
     // If not matching food secret, verify with isolated shop secret
-    if (!isValid && shopConfig.jwtSecret) {
+    if (!isValid && shopConfig.jwtSecret && shopConfig.jwtSecret.length >= 16) {
       const shopSig = crypto
         .createHmac('sha256', shopConfig.jwtSecret)
         .update(`${header}.${payload}`)

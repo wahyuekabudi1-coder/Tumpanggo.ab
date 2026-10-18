@@ -156,7 +156,18 @@ async function runTestSuite() {
     console.log('\n--- 3. Testing Tumpang Food Order Payment Flow ---');
 
     const existingFoodOrders = foodDb.getOrders();
-    const testFoodOrder = existingFoodOrders.find(o => o.status === OrderStatus.WAITING_PAYMENT) || existingFoodOrders[0];
+    let testFoodOrder = existingFoodOrders.find(o => o.status === OrderStatus.WAITING_PAYMENT) || existingFoodOrders[0];
+    if (!testFoodOrder) {
+      testFoodOrder = await foodDb.createOrder({
+        merchantId: 'm1',
+        customerName: 'ArtoPay Tester',
+        customerPhone: '081234567890',
+        deliveryAddress: 'Jl. Raya Tumpang No. 1',
+        latitude: -7.998,
+        longitude: 112.766,
+        items: [{ menuItemId: 'menu_1', quantity: 1 }]
+      });
+    }
     assert(!!testFoodOrder, 'Target food order exists for integration test');
 
     if (testFoodOrder) {

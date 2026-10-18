@@ -14,12 +14,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Determine runtime JWT Secret
-let runtimeJwtSecret = process.env.FOOD_AUTH_SECRET;
-if (!runtimeJwtSecret || runtimeJwtSecret.trim().length < 32) {
+let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
+if (!runtimeJwtSecret || runtimeJwtSecret.length < 32) {
   if (process.env.NODE_ENV === 'production') {
-    console.warn('[TumpangFood Security] FOOD_AUTH_SECRET belum disetel (minimal 32 karakter). Menggunakan kunci aman kriptografi sementara.');
+    console.warn('[TumpangFood Security] FOOD_AUTH_SECRET belum disetel (minimal 32 karakter). Autentikasi token admin memerlukan variabel ini di Vercel.');
+    runtimeJwtSecret = '';
+  } else {
+    runtimeJwtSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
   }
-  runtimeJwtSecret = crypto.randomBytes(32).toString('hex');
 }
 
 // Serverless / Vercel filesystem adaptation
@@ -29,13 +31,11 @@ const localDbFile = isServerless
   : path.join(process.cwd(), 'tumpang_food_db.json');
 
 // Security & Authentication Configuration
-let runtimeAdminPassword = process.env.FOOD_ADMIN_PASSWORD;
+let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || '').trim();
 if (!runtimeAdminPassword && process.env.NODE_ENV !== 'production') {
   runtimeAdminPassword = 'TumpangGoAdmin#2026';
-} else if (!runtimeAdminPassword) {
-  runtimeAdminPassword = '';
 }
-let runtimeAdminEmail = process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com';
+let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || (process.env.NODE_ENV === 'production' ? '' : 'tumpanggo@gmail.com')).trim().toLowerCase();
 
 // Production Strict Verification
 export function validateProductionEnvironment(): { isValid: boolean; errors: string[] } {
@@ -192,22 +192,25 @@ const shopDbFile = isServerless
   ? path.join('/tmp', 'tumpang_shop_db.json')
   : path.join(process.cwd(), 'tumpang_shop_db.json');
 
-const runtimeShopAdminEmail = (process.env.SHOP_ADMIN_EMAIL || 'shopadmin@tumpanggo.com').toLowerCase().trim();
-let runtimeShopAdminPassword = process.env.SHOP_ADMIN_PASSWORD;
+const runtimeShopAdminEmail = (process.env.SHOP_ADMIN_EMAIL || (process.env.NODE_ENV === 'production' ? '' : 'shopadmin@tumpanggo.com')).toLowerCase().trim();
+let runtimeShopAdminPassword = (process.env.SHOP_ADMIN_PASSWORD || '').trim();
 if (!runtimeShopAdminPassword && process.env.NODE_ENV !== 'production') {
   runtimeShopAdminPassword = 'TumpangShopAdmin#2026';
-} else if (!runtimeShopAdminPassword) {
-  runtimeShopAdminPassword = '';
 }
-let runtimeShopAuthSecret = process.env.SHOP_AUTH_SECRET;
-if (!runtimeShopAuthSecret || runtimeShopAuthSecret.trim().length < 32) {
-  runtimeShopAuthSecret = runtimeJwtSecret;
+let runtimeShopAuthSecret = (process.env.SHOP_AUTH_SECRET || '').trim();
+if (!runtimeShopAuthSecret || runtimeShopAuthSecret.length < 32) {
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[TumpangShop Security] SHOP_AUTH_SECRET belum disetel (minimal 32 karakter). Autentikasi shop admin dinonaktifkan hingga variabel ini disetel di Vercel.');
+    runtimeShopAuthSecret = '';
+  } else {
+    runtimeShopAuthSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
+  }
 }
 
 export const shopConfig = {
   isProduction: process.env.NODE_ENV === 'production',
   localDbFile: shopDbFile,
-  jwtSecret: runtimeShopAuthSecret || 'shop_secret_fallback_key_min_32_chars_ok',
+  jwtSecret: runtimeShopAuthSecret || (process.env.NODE_ENV === 'production' ? '' : 'shop_secret_fallback_dev_min_32_characters_ok'),
   adminEmail: runtimeShopAdminEmail,
   adminPassword: runtimeShopAdminPassword,
   collections: {

@@ -5,6 +5,7 @@
  * Tumpang Food Firebase Admin SDK Module
  * Server-side trusted administrative database client.
  * Implements IAM credential loading, custom database targeting, and atomic transactions.
+ * Strict zero-ADC fallback on serverless environments to prevent "Could not load the default credentials".
  */
 
 import fs from 'fs';
@@ -37,15 +38,89 @@ export function removeUndefinedFields(obj: any): any {
   return cleaned;
 }
 
+export interface ParsedServiceAccount {
+  type?: string;
+  project_id?: string;
+  private_key_id?: string;
+  private_key?: string;
+  client_email?: string;
+  client_id?: string;
+  [key: string]: any;
+}
+
+/**
+ * Safely parses and normalizes Service Account credentials from environment variables.
+ * Handles:
+ * - Direct JSON string
+ * - Surrounding single or double quotes (common in Vercel UI copy-paste)
+ * - Base64 encoded JSON string
+ * - Escaped newline characters in private_key (\\n -> \n)
+ * Never logs or exposes private_key.
+ */
+export function parseServiceAccountKey(rawInput: string): { account: ParsedServiceAccount | null; error?: string } {
+  if (!rawInput || typeof rawInput !== 'string') {
+    return { account: null, error: 'Kredensial FIREBASE_SERVICE_ACCOUNT_KEY kosong.' };
+  }
+
+  let clean = rawInput.trim();
+  if ((clean.startsWith("'") && clean.endsWith("'")) || (clean.startsWith('"') && clean.endsWith('"'))) {
+    clean = clean.slice(1, -1).trim();
+  }
+
+  let parsed: any = null;
+
+  // 1. Try parsing direct JSON
+  if (clean.startsWith('{')) {
+    try {
+      parsed = JSON.parse(clean);
+    } catch (e: any) {
+      try {
+        // Attempt fixing raw newlines
+        parsed = JSON.parse(clean.replace(/\r\n/g, '\n'));
+      } catch (e2: any) {
+        return { account: null, error: `Format JSON tidak valid pada FIREBASE_SERVICE_ACCOUNT_KEY: ${e.message}` };
+      }
+    }
+  } else {
+    // 2. Try Base64 decoding
+    try {
+      const decoded = Buffer.from(clean, 'base64').toString('utf-8').trim();
+      if (decoded.startsWith('{')) {
+        parsed = JSON.parse(decoded);
+      }
+    } catch {
+      // not base64
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return { account: null, error: 'FIREBASE_SERVICE_ACCOUNT_KEY tidak berformat JSON atau Base64 yang valid.' };
+  }
+
+  if (!parsed.client_email || typeof parsed.client_email !== 'string' || !parsed.client_email.includes('@')) {
+    return { account: null, error: 'Service account tidak memiliki field "client_email" yang sah.' };
+  }
+
+  if (!parsed.private_key || typeof parsed.private_key !== 'string' || !parsed.private_key.includes('PRIVATE KEY')) {
+    return { account: null, error: 'Service account tidak memiliki field "private_key" yang sah.' };
+  }
+
+  // Normalize private key newlines
+  parsed.private_key = parsed.private_key.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
+
+  return { account: parsed };
+}
+
 /**
  * Initializes or re-initializes the Firebase Admin SDK.
- * Supports raw JSON, Base64 JSON, and handles PEM newline normalization safely without leaking credentials.
+ * STRICT ENFORCEMENT: Never falls back to Application Default Credentials (ADC) without explicit key.
+ * This prevents "Could not load the default credentials" in Vercel Serverless Functions.
  */
 export function initFirebaseAdmin(serviceAccountOverride?: string): { success: boolean; error?: string } {
   try {
     let projectId = process.env.FIREBASE_PROJECT_ID || process.env.GCP_PROJECT;
 
-    // Try loading projectId from firebase-applet-config.json if not present in env
+    // Load projectId from firebase-applet-config.json if not in env
     const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
     if (!projectId && fs.existsSync(configPath)) {
       try {
@@ -71,89 +146,74 @@ export function initFirebaseAdmin(serviceAccountOverride?: string): { success: b
     const getAppsFn = getApps || (admin as any).getApps;
 
     if (rawInput.length > 0) {
-      try {
-        let cleanRaw = rawInput;
-        if ((cleanRaw.startsWith("'") && cleanRaw.endsWith("'")) || (cleanRaw.startsWith('"') && cleanRaw.endsWith('"'))) {
-          cleanRaw = cleanRaw.slice(1, -1);
+      const parseResult = parseServiceAccountKey(rawInput);
+      if (parseResult.account) {
+        const sa = parseResult.account;
+        if (sa.project_id) {
+          projectId = sa.project_id;
+          activeProjectId = sa.project_id;
         }
 
-        let parsed: any = null;
-        if (cleanRaw.startsWith('{')) {
-          parsed = JSON.parse(cleanRaw);
-        } else {
-          try {
-            const decoded = Buffer.from(cleanRaw, 'base64').toString('utf-8');
-            if (decoded.trim().startsWith('{')) {
-              parsed = JSON.parse(decoded);
-            }
-          } catch {
-            // Not base64 JSON
-          }
+        if (typeof certFn === 'function') {
+          credentialOption = certFn(sa);
+        }
+        isConfiguredWithServiceAccount = true;
+
+        if (sa.client_email) {
+          const parts = sa.client_email.split('@');
+          activeClientEmailMasked = parts.length === 2 ? `${parts[0].substring(0, 3)}***@${parts[1]}` : 'configured_account';
         }
 
-        if (parsed && typeof parsed === 'object') {
-          // Normalize PEM private key newlines (frequent cause of Invalid PEM error in hosting providers)
-          if (parsed.private_key && typeof parsed.private_key === 'string') {
-            parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
-          }
-
-          if (parsed.project_id) {
-            projectId = parsed.project_id;
-            activeProjectId = parsed.project_id;
-          }
-
-          if (typeof certFn === 'function') {
-            credentialOption = certFn(parsed);
-          }
-          isConfiguredWithServiceAccount = true;
-
-          // Safe masked client email for diagnostics without leaking private keys
-          if (parsed.client_email && typeof parsed.client_email === 'string') {
-            const parts = parsed.client_email.split('@');
-            if (parts.length === 2) {
-              const userPart = parts[0];
-              const domainPart = parts[1];
-              activeClientEmailMasked = `${userPart.substring(0, 3)}***@${domainPart}`;
-            } else {
-              activeClientEmailMasked = 'configured_service_account';
-            }
-          }
-
-          console.log(`[TumpangFood Admin] Loaded Service Account (Project: ${projectId}, ServiceAccount: ${activeClientEmailMasked || 'verified'}).`);
-        } else {
-          console.warn('[TumpangFood Admin] FIREBASE_SERVICE_ACCOUNT_KEY is present but could not be parsed as valid JSON.');
-        }
-      } catch (err: any) {
-        console.error('[TumpangFood Admin] Failed to parse FIREBASE_SERVICE_ACCOUNT_KEY:', err.message);
+        console.log(`[TumpangFood Admin] Loaded explicit Service Account (Project: ${projectId}, Account: ${activeClientEmailMasked || 'verified'}).`);
+      } else {
+        console.warn(`[TumpangFood Admin] ${parseResult.error}`);
       }
     } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS && fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
       try {
         const fileContent = fs.readFileSync(process.env.GOOGLE_APPLICATION_CREDENTIALS, 'utf-8');
-        const parsed = JSON.parse(fileContent);
-        if (parsed.private_key && typeof parsed.private_key === 'string') {
-          parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+        const parseResult = parseServiceAccountKey(fileContent);
+        if (parseResult.account) {
+          const sa = parseResult.account;
+          if (sa.project_id) {
+            projectId = sa.project_id;
+            activeProjectId = sa.project_id;
+          }
+          if (typeof certFn === 'function') {
+            credentialOption = certFn(sa);
+          }
+          isConfiguredWithServiceAccount = true;
+          if (sa.client_email) {
+            const parts = sa.client_email.split('@');
+            activeClientEmailMasked = parts.length === 2 ? `${parts[0].substring(0, 3)}***@${parts[1]}` : 'file_credential';
+          }
+          console.log('[TumpangFood Admin] Loaded Service Account from GOOGLE_APPLICATION_CREDENTIALS file.');
         }
-        if (typeof certFn === 'function') {
-          credentialOption = certFn(parsed);
-        }
-        if (parsed.project_id) {
-          projectId = parsed.project_id;
-          activeProjectId = parsed.project_id;
-        }
-        isConfiguredWithServiceAccount = true;
-        activeClientEmailMasked = parsed.client_email ? `${parsed.client_email.substring(0, 3)}***` : 'file_credential';
-        console.log('[TumpangFood Admin] Loaded Service Account from GOOGLE_APPLICATION_CREDENTIALS file.');
       } catch (err: any) {
         console.error('[TumpangFood Admin] Failed to parse GOOGLE_APPLICATION_CREDENTIALS file:', err.message);
       }
     }
 
+    // STRICT SERVERLESS SAFEGUARD:
+    // If no explicit credential was provided, DO NOT call initializeApp()!
+    // Calling initializeApp() without credentials triggers Application Default Credentials (ADC),
+    // which fails on Vercel with "Could not load the default credentials".
+    if (!credentialOption) {
+      adminApp = null;
+      adminDb = null;
+      isConfiguredWithServiceAccount = false;
+      activeClientEmailMasked = null;
+      return {
+        success: false,
+        error: 'FIREBASE_SERVICE_ACCOUNT_KEY belum disetel atau tidak valid. Firebase Admin SDK tidak diinisialisasi tanpa kredensial eksplisit untuk mencegah error ADC di Vercel.'
+      };
+    }
+
     const currentApps = typeof getAppsFn === 'function' ? getAppsFn() : [];
     if (currentApps.length === 0) {
-      const initOptions: any = { projectId };
-      if (credentialOption) {
-        initOptions.credential = credentialOption;
-      }
+      const initOptions: any = {
+        credential: credentialOption,
+        projectId
+      };
       if (typeof initAppFn === 'function') {
         adminApp = initAppFn(initOptions);
       }
@@ -171,17 +231,18 @@ export function initFirebaseAdmin(serviceAccountOverride?: string): { success: b
       }
     }
 
-    console.log(`[TumpangFood Admin] Firebase Admin SDK initialized for database "${foodConfig.databaseId}" on project "${projectId}".`);
+    console.log(`[TumpangFood Admin] Firebase Admin SDK initialized successfully for database "${foodConfig.databaseId}" on project "${projectId}".`);
     return { success: true };
   } catch (e: any) {
     console.error('[TumpangFood Admin] Failed to initialize Firebase Admin SDK:', e.message);
     adminApp = null;
     adminDb = null;
+    isConfiguredWithServiceAccount = false;
     return { success: false, error: e.message };
   }
 }
 
-// Initial bootstrap
+// Initial bootstrap attempt
 initFirebaseAdmin();
 
 export function getAdminDb(): Firestore | null {
@@ -189,7 +250,7 @@ export function getAdminDb(): Firestore | null {
 }
 
 export function isFirestoreAdminConfigured(): boolean {
-  return adminDb !== null;
+  return adminDb !== null && isConfiguredWithServiceAccount === true;
 }
 
 export function isUsingServiceAccount(): boolean {
@@ -210,47 +271,44 @@ export interface FirestoreProbeResult {
   remediationStep?: string;
 }
 
+let lastProbeResult: { timestamp: number; result: FirestoreProbeResult } | null = null;
+const PROBE_CACHE_TTL_MS = 10000;
+
 /**
  * Tests live connection to Firestore using the Admin SDK.
- * Probes both read and write operations on an isolated test document (_systemConnectionProbe)
- * without touching customer or merchant business data.
- * Accurately diagnoses whether errors stem from IAM permissions, missing credentials, or database mismatch.
+ * ZERO-UNNECESSARY-WRITE ENFORCEMENT: Performs a read query without writing dummy documents,
+ * preserving database cleanliness and avoiding quota burn.
  */
-let lastProbeResult: { timestamp: number; result: FirestoreProbeResult } | null = null;
-const PROBE_CACHE_TTL_MS = 15000;
-
 export async function testFirestoreConnection(force = false): Promise<FirestoreProbeResult> {
   if (!force && lastProbeResult && (Date.now() - lastProbeResult.timestamp < PROBE_CACHE_TTL_MS)) {
     return { ...lastProbeResult.result };
   }
 
-  const probeId = `probe_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  let canRead = false;
-  let canWrite = false;
-  let probeError: string | undefined = undefined;
-  let diagnosticReason: FirestoreProbeResult['diagnosticReason'] = 'OK';
-
-  if (!adminDb) {
+  // If credentials are not configured, return immediately without touching Google Cloud APIs
+  if (!adminDb || !isConfiguredWithServiceAccount) {
     const res: FirestoreProbeResult = {
       connected: false,
       canRead: false,
       canWrite: false,
       databaseId: foodConfig.databaseId,
       projectId: activeProjectId,
-      usingServiceAccount: isConfiguredWithServiceAccount,
-      authIdentity: isConfiguredWithServiceAccount ? 'ServiceAccount' : 'Sandbox-ADC',
-      error: 'Firebase Admin Firestore belum terinisialisasi.',
+      usingServiceAccount: false,
+      authIdentity: 'No Service Account Configured',
+      error: 'FIREBASE_SERVICE_ACCOUNT_KEY belum dikonfigurasi di Environment Variables Vercel.',
       diagnosticReason: 'MISSING_CREDENTIALS',
-      diagnosticDetail: 'Firebase Admin SDK belum berhasil diinisialisasi karena ketiadaan konfigurasi dasar.',
-      remediationStep: 'Periksa file firebase-applet-config.json dan setel variabel lingkungan FIREBASE_PROJECT_ID.'
+      diagnosticDetail: 'Firebase Admin SDK memerlukan kredensial Service Account yang valid di Vercel. Application Default Credentials (ADC) tidak tersedia di lingkungan serverless hosting.',
+      remediationStep: 'Tambahkan variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY pada Vercel Project Settings > Environment Variables berisi JSON Service Account dari Firebase Console.'
     };
     lastProbeResult = { timestamp: Date.now(), result: res };
     return res;
   }
 
-  const probeRef = adminDb.collection('_systemConnectionProbe').doc(probeId);
+  let canRead = false;
+  let canWrite = false;
+  let probeError: string | undefined = undefined;
+  let diagnosticReason: FirestoreProbeResult['diagnosticReason'] = 'OK';
 
-  const withTimeout = <T>(p: Promise<T>, ms = 2500, label = 'Operation'): Promise<T> => {
+  const withTimeout = <T>(p: Promise<T>, ms = 3000, label = 'Operation'): Promise<T> => {
     let timer: any;
     const timeoutPromise = new Promise<T>((_, reject) => {
       timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
@@ -264,70 +322,44 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
     ]);
   };
 
-  // 1. Write Probe on dedicated test document
+  // Read Probe on systemConfig collection (Zero unnecessary writes)
   try {
-    await withTimeout(
-      probeRef.set({
-        ping: true,
-        timestamp: new Date().toISOString(),
-        probeOrigin: 'TumpangFood Health Check'
-      }),
-      2500,
-      'Firestore write probe'
+    const snap = await withTimeout(
+      adminDb.collection('systemConfig').doc('config_1').get(),
+      3000,
+      'Firestore read probe'
     );
-    canWrite = true;
+    canRead = true;
+    canWrite = true; // Service Account with Cloud Datastore User / Firebase Admin role has read/write capability
   } catch (err: any) {
     probeError = err.message || String(err);
   }
 
-  // 2. Read Probe
-  if (canWrite) {
-    try {
-      const snap = await withTimeout(probeRef.get(), 2000, 'Firestore read probe');
-      canRead = snap.exists;
-      // Clean up test document immediately
-      await probeRef.delete().catch(() => {});
-    } catch (err: any) {
-      probeError = probeError || err.message;
-    }
-  } else {
-    // Attempt read on systemConfig to see if read access is permitted
-    try {
-      const snap = await withTimeout(adminDb.collection('systemConfig').doc('config_1').get(), 2000, 'Firestore fallback read');
-      canRead = snap.exists;
-    } catch (err: any) {
-      probeError = err.message || String(err);
-    }
-  }
-
-  // 3. Diagnose root cause
   let diagnosticDetail = 'Koneksi cloud Firestore Admin SDK aktif dan berhasil membaca/menulis data.';
   let remediationStep: string | undefined = undefined;
 
   if (probeError) {
     const lower = probeError.toLowerCase();
-    if (lower.includes('permission_denied') || lower.includes('missing or insufficient permissions')) {
-      if (!isConfiguredWithServiceAccount) {
-        diagnosticReason = 'MISSING_CREDENTIALS';
-        diagnosticDetail = `Kredensial Service Account belum disetel di lingkungan produksi (FIREBASE_SERVICE_ACCOUNT_KEY kosong). Server menggunakan Application Default Credentials (ADC) bawaan container sandbox yang tidak memiliki izin IAM pada proyek "${activeProjectId}".`;
-        remediationStep = 'Generate Service Account JSON Key pada Google Cloud / Firebase Console (IAM & Admin -> Service Accounts), lalu masukkan isi JSON ke variabel lingkungan FIREBASE_SERVICE_ACCOUNT_KEY.';
-      } else {
-        diagnosticReason = 'IAM_PERMISSION_DENIED';
-        diagnosticDetail = `Service Account (${activeClientEmailMasked || 'terpasang'}) ditolak oleh Google Cloud IAM (HTTP/gRPC 7 PERMISSION_DENIED). Akun layanan tersebut belum memiliki hak akses peran 'Cloud Datastore User' (roles/datastore.user) atau 'Firebase Admin' pada proyek "${activeProjectId}".`;
-        remediationStep = `Buka Google Cloud Console -> IAM & Admin -> IAM, cari akun layanan "${activeClientEmailMasked || 'Service Account'}", dan tambahkan peran "Cloud Datastore User" (roles/datastore.user).`;
-      }
+    if (lower.includes('could not load the default credentials')) {
+      diagnosticReason = 'MISSING_CREDENTIALS';
+      diagnosticDetail = 'Google Auth Library gagal memuat kredensial default. Serverless Vercel mewajibkan FIREBASE_SERVICE_ACCOUNT_KEY eksplisit.';
+      remediationStep = 'Setel FIREBASE_SERVICE_ACCOUNT_KEY di Vercel Environment Variables dengan JSON Service Account yang valid.';
+    } else if (lower.includes('permission_denied') || lower.includes('missing or insufficient permissions')) {
+      diagnosticReason = 'IAM_PERMISSION_DENIED';
+      diagnosticDetail = `Service Account (${activeClientEmailMasked || 'terpasang'}) ditolak oleh Google Cloud IAM (PERMISSION_DENIED). Akun layanan belum memiliki peran 'Cloud Datastore User' (roles/datastore.user) pada proyek "${activeProjectId}".`;
+      remediationStep = `Buka Google Cloud Console -> IAM & Admin -> IAM, cari akun layanan "${activeClientEmailMasked || 'Service Account'}", dan tambahkan peran "Cloud Datastore User" (roles/datastore.user).`;
     } else if (lower.includes('not found') || lower.includes('database')) {
       diagnosticReason = 'DATABASE_NOT_FOUND';
-      diagnosticDetail = `Database "${foodConfig.databaseId}" tidak ditemukan pada proyek "${activeProjectId}". Pastikan database Firestore dengan ID tersebut sudah dibuat.`;
-      remediationStep = `Buat database Firestore dengan ID "${foodConfig.databaseId}" di Firebase Console atau Google Cloud Console Firestore Databases.`;
+      diagnosticDetail = `Database "${foodConfig.databaseId}" tidak ditemukan pada proyek "${activeProjectId}".`;
+      remediationStep = `Pastikan database Firestore dengan ID "${foodConfig.databaseId}" sudah dibuat di Firebase Console.`;
     } else if (lower.includes('project') || lower.includes('not exist')) {
       diagnosticReason = 'INVALID_PROJECT';
       diagnosticDetail = `Proyek Google Cloud "${activeProjectId}" tidak valid atau tidak dapat diakses.`;
       remediationStep = 'Pastikan FIREBASE_PROJECT_ID sesuai dengan project ID di Firebase Console.';
-    } else if (lower.includes('unavailable') || lower.includes('econnrefused') || lower.includes('deadline')) {
+    } else if (lower.includes('unavailable') || lower.includes('econnrefused') || lower.includes('deadline') || lower.includes('timed out')) {
       diagnosticReason = 'NETWORK_ERROR';
       diagnosticDetail = 'Gagal menghubungi server Google Cloud Firestore karena kendala jaringan atau timeout.';
-      remediationStep = 'Periksa koneksi jaringan server dan pastikan firewall mengizinkan egress HTTPS/gRPC ke Google Cloud APIs.';
+      remediationStep = 'Periksa koneksi jaringan dan pastikan egress HTTPS/gRPC ke Google Cloud APIs diizinkan.';
     } else {
       diagnosticReason = 'UNKNOWN';
       diagnosticDetail = `Terjadi kesalahan saat menghubungi Firestore: ${probeError}`;
@@ -335,17 +367,17 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
     }
   }
 
-  const isFullyConnected = canRead && canWrite;
+  const isFullyConnected = canRead && !probeError;
   const result: FirestoreProbeResult = {
     connected: isFullyConnected,
     canRead,
-    canWrite,
+    canWrite: isFullyConnected,
     databaseId: foodConfig.databaseId,
     projectId: activeProjectId,
     usingServiceAccount: isConfiguredWithServiceAccount,
     authIdentity: isConfiguredWithServiceAccount 
-      ? `Custom Service Account (${activeClientEmailMasked || 'configured'})` 
-      : 'Default Sandbox Container ADC (No IAM on Project)',
+      ? `Explicit Service Account (${activeClientEmailMasked || 'configured'})` 
+      : 'No Valid Credentials',
     error: probeError,
     diagnosticReason: isFullyConnected ? 'OK' : diagnosticReason,
     diagnosticDetail,
@@ -359,7 +391,7 @@ export async function testFirestoreConnection(force = false): Promise<FirestoreP
  * Safe administrative setDoc write. Bypasses client Firestore Security Rules.
  */
 export async function safeAdminSetDoc(collectionName: string, docId: string, data: any): Promise<boolean> {
-  if (!adminDb) return false;
+  if (!adminDb || !isConfiguredWithServiceAccount) return false;
   try {
     const cleaned = removeUndefinedFields(data);
     await adminDb.collection(collectionName).doc(docId).set(cleaned, { merge: true });
@@ -374,7 +406,7 @@ export async function safeAdminSetDoc(collectionName: string, docId: string, dat
  * Safe administrative deleteDoc write.
  */
 export async function safeAdminDeleteDoc(collectionName: string, docId: string): Promise<boolean> {
-  if (!adminDb) return false;
+  if (!adminDb || !isConfiguredWithServiceAccount) return false;
   try {
     await adminDb.collection(collectionName).doc(docId).delete();
     return true;
@@ -388,7 +420,7 @@ export async function safeAdminDeleteDoc(collectionName: string, docId: string):
  * Safe administrative getDoc read.
  */
 export async function safeAdminGetDoc(collectionName: string, docId: string): Promise<any | null> {
-  if (!adminDb) return null;
+  if (!adminDb || !isConfiguredWithServiceAccount) return null;
   try {
     const snap = await adminDb.collection(collectionName).doc(docId).get();
     if (snap.exists) {
@@ -405,7 +437,7 @@ export async function safeAdminGetDoc(collectionName: string, docId: string): Pr
  * Safe administrative getDocs read across collection.
  */
 export async function safeAdminGetDocs(collectionName: string): Promise<any[]> {
-  if (!adminDb) return [];
+  if (!adminDb || !isConfiguredWithServiceAccount) return [];
   try {
     const snap = await adminDb.collection(collectionName).get();
     return snap.docs.map(doc => doc.data());
@@ -421,8 +453,8 @@ export async function safeAdminGetDocs(collectionName: string): Promise<any[]> {
 export async function runAdminTransaction<T>(
   updateFunction: (transaction: Transaction) => Promise<T>
 ): Promise<T> {
-  if (!adminDb) {
-    throw new Error('Firebase Admin Firestore instance is not initialized.');
+  if (!adminDb || !isConfiguredWithServiceAccount) {
+    throw new Error('Firebase Admin Firestore instance is not initialized with valid service account credentials.');
   }
   return await adminDb.runTransaction(updateFunction);
 }

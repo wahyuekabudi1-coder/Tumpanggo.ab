@@ -32,10 +32,18 @@ shopRouter.post('/auth/login', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Email dan kata sandi wajib diisi.' });
   }
 
-  if (shopConfig.isProduction && targetPass === 'TumpangShopAdmin#2026') {
-    return res.status(401).json({ 
-      error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur SHOP_ADMIN_PASSWORD di environment variable.' 
-    });
+  if (shopConfig.isProduction) {
+    if (!shopConfig.adminPassword || shopConfig.adminPassword.length < 8) {
+      return res.status(500).json({ error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_ADMIN_PASSWORD belum dikonfigurasi di Environment Variables Vercel.' });
+    }
+    if (!shopConfig.jwtSecret || shopConfig.jwtSecret.length < 32) {
+      return res.status(500).json({ error: 'Autentikasi Shop Admin dinonaktifkan: SHOP_AUTH_SECRET belum dikonfigurasi di Environment Variables Vercel.' });
+    }
+    if (targetPass === 'TumpangShopAdmin#2026') {
+      return res.status(401).json({ 
+        error: 'Kata sandi default ditolak pada lingkungan produksi demi keamanan. Atur SHOP_ADMIN_PASSWORD di environment variable.' 
+      });
+    }
   }
 
   const isMatchingEmail = targetUser === shopConfig.adminEmail || targetUser === 'shopadmin';

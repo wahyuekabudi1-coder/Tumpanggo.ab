@@ -33,21 +33,27 @@ app.use(async (req, res, next) => {
       foodDb.ensureInitialized(),
       shopDb.ensureInitialized()
     ]);
+    next();
   } catch (err: any) {
     if (foodConfig.isProduction && req.path.startsWith('/api') && !req.path.startsWith('/api/health')) {
+      const sanitizedDetail = typeof err?.message === 'string'
+        ? err.message.replace(/(\/Users\/|\/home\/|\/var\/task\/)[^\s]+/g, '[system-path]')
+        : 'Database connection failed';
+
       return res.status(503).json({
-        error: '[Produksi] Firestore Cloud tidak terhubung atau mengalami kegagalan otentikasi. Mode produksi menolak fallback ke data JSON lokal demi menjaga integritas data.',
-        detail: err.message
+        error: 'Layanan database Cloud Firestore belum terhubung. Pastikan FIREBASE_SERVICE_ACCOUNT_KEY sudah dikonfigurasi di Environment Variables Vercel.',
+        code: 'DATABASE_UNAVAILABLE',
+        detail: sanitizedDetail
       });
     }
+    next();
   }
-  next();
 });
 
 // Attach user authentication from tokens or headers
 app.use(authenticateToken);
 
-// Health check endpoint
+// Health check endpoint - Distinguishes server process vitality from database readiness
 app.get('/api/health', async (req, res) => {
   try {
     const [foodStorageStatus, shopStorageStatus] = await Promise.all([
@@ -58,7 +64,9 @@ app.get('/api/health', async (req, res) => {
     const isProd = foodConfig.isProduction;
 
     res.status(isProd && !isHealthy ? 503 : 200).json({
-      status: isHealthy ? 'healthy' : (isProd ? 'degraded_disconnected_from_cloud' : 'ok_development_resilient_mode'),
+      status: isHealthy ? 'healthy' : (isProd ? 'database_disconnected' : 'ok_development_resilient_mode'),
+      server: 'online',
+      database: isHealthy ? 'connected' : 'disconnected',
       system: 'tumpang-go-ecosystem',
       environment: process.env.NODE_ENV || 'development',
       foodDatabase: foodStorageStatus,
@@ -69,8 +77,10 @@ app.get('/api/health', async (req, res) => {
     console.error('[TumpangFood Health Check Error]', err);
     res.status(500).json({
       status: 'error',
+      server: 'online',
+      database: 'error',
       system: 'tumpang-food',
-      error: err.message || 'Health check error',
+      error: 'Health check diagnostic encountered an internal error.',
       timestamp: new Date().toISOString()
     });
   }

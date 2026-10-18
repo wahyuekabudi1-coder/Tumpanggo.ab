@@ -343,7 +343,7 @@ export class ShopDatabase {
 
     if (!isFirestoreAdminConfigured()) {
       if (shopConfig.isProduction) {
-        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi untuk Tumpang Shop. Operasi database ditolak demi integritas data.');
+        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi untuk Tumpang Shop (FIREBASE_SERVICE_ACCOUNT_KEY kosong atau belum disetel di Vercel). Operasi database cloud ditolak demi integritas data.');
       }
       this.isInitialized = true;
       return;

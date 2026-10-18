@@ -432,7 +432,7 @@ export class FoodDatabase {
   public async init() {
     if (!isFirestoreAdminConfigured()) {
       if (foodConfig.isProduction) {
-        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi. Operasi database ditolak demi integritas data.');
+        throw new Error('[Produksi] Firebase Admin SDK tidak terkonfigurasi (FIREBASE_SERVICE_ACCOUNT_KEY kosong atau belum disetel di Vercel). Operasi database cloud ditolak demi integritas data.');
       }
       console.warn('[TumpangFood DB] Firestore Admin SDK not configured, operating with persistent local storage.');
       this.isInitialized = true;
