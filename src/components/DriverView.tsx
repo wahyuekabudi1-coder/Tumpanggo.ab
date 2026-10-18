@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Driver, Order, OrderStatus } from '../types.ts';
 import MapPicker from './MapPicker.tsx';
 import { compressImage } from '../utils/imageCompressor.ts';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   Navigation, CheckCircle2, ShoppingBag, Eye, Phone, MapPin, ClipboardList, 
   User, ToggleLeft, ToggleRight, LogOut, Check, ChevronRight, X, Image
@@ -42,23 +42,31 @@ export default function DriverView({ driverId, onLogout }: DriverViewProps) {
 
       // 2. Active Tasks
       const tasksRes = await fetch(`/api/drivers/${driverId}/orders`);
-      const allOrders: Order[] = await tasksRes.json();
+      let allOrders: Order[] = [];
+      if (tasksRes.ok) {
+        const rawOrders = await tasksRes.json();
+        allOrders = extractArrayResponse<Order>(rawOrders, 'orders');
+      } else {
+        const errJson = await tasksRes.json().catch(() => null);
+        console.warn('[DriverView] Gagal mengambil tugas kurir:', errJson?.error || tasksRes.statusText);
+      }
       
+      const safeOrders = Array.isArray(allOrders) ? allOrders : [];
       // Filter active (cooking, ready for pickup, picked up)
-      const active = allOrders.filter(o => 
-        [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status)
+      const active = safeOrders.filter(o => 
+        o && [OrderStatus.PAYMENT_VERIFIED, OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status)
       );
       setAssignedOrders(active);
 
       // Filter histories (delivered, completed, cancelled)
-      const past = allOrders.filter(o => 
-        [OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.CANCELLED].includes(o.status)
+      const past = safeOrders.filter(o => 
+        o && [OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.CANCELLED].includes(o.status)
       );
       setHistoryOrders(past);
 
       // Keep selected order synced if any
       if (selectedOrder) {
-        const updated = allOrders.find(o => o.id === selectedOrder.id);
+        const updated = safeOrders.find(o => o && o.id === selectedOrder.id);
         if (updated) setSelectedOrder(updated);
       }
     } catch (e) {

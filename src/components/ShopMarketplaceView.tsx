@@ -13,7 +13,7 @@ import {
   ShopPaymentStatus, ShopOrderStatus 
 } from '../types/shop';
 import BannerCarousel from './BannerCarousel';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   Search, ShoppingBag, Plus, Minus, Trash2, X, ArrowLeft, 
   AlertCircle, RefreshCw, Check, Package, Tag, Info, Layers, 
@@ -124,19 +124,27 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
       ]);
 
       if (!cfgRes.ok || !catRes.ok || !prodRes.ok) {
-        throw new Error('Gagal memuat katalog Tumpang Shop dari server. Kode respon tidak normal.');
+        const errorMsg = !prodRes.ok 
+          ? `Gagal memuat produk Tumpang Shop (HTTP ${prodRes.status})` 
+          : (!catRes.ok ? `Gagal memuat kategori Tumpang Shop (HTTP ${catRes.status})` : `Gagal memuat konfigurasi toko (HTTP ${cfgRes.status})`);
+        throw new Error(errorMsg);
       }
 
       const cfgData = await cfgRes.json();
       const catData = await catRes.json();
       const prodData = await prodRes.json();
 
+      const safeCategories = extractArrayResponse<ShopCategory>(catData, 'categories');
+      const safeProducts = extractArrayResponse<ShopProduct>(prodData, 'products');
+
       setShopConfig(cfgData);
-      setCategories(catData);
-      setProducts(prodData);
+      setCategories(safeCategories);
+      setProducts(safeProducts);
     } catch (err: any) {
       console.error('[TumpangShop Client] Error fetching data:', err);
       setError(err.message || 'Terjadi kesalahan saat menghubungi server Tumpang Shop.');
+      setCategories([]);
+      setProducts([]);
     } finally {
       setLoading(false);
     }
@@ -144,9 +152,14 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
 
   // Filtered Products
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
+    const safeProducts = Array.isArray(products) ? products : [];
+    const safeCategories = Array.isArray(categories) ? categories : [];
+
+    return safeProducts.filter((p) => {
+      if (!p) return false;
+
       if (selectedCategorySlug !== 'all') {
-        const cat = categories.find(c => c.slug === selectedCategorySlug || c.id === selectedCategorySlug);
+        const cat = safeCategories.find(c => c && (c.slug === selectedCategorySlug || c.id === selectedCategorySlug));
         if (cat && p.categoryId !== cat.id) {
           return false;
         }
@@ -154,9 +167,9 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
 
       if (searchQuery.trim().length > 0) {
         const q = searchQuery.toLowerCase().trim();
-        const matchName = p.name.toLowerCase().includes(q);
-        const matchSku = p.sku.toLowerCase().includes(q);
-        const matchDesc = p.description.toLowerCase().includes(q);
+        const matchName = (p.name || '').toLowerCase().includes(q);
+        const matchSku = (p.sku || '').toLowerCase().includes(q);
+        const matchDesc = (p.description || '').toLowerCase().includes(q);
         if (!matchName && !matchSku && !matchDesc) {
           return false;
         }
@@ -259,28 +272,29 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
   // Update Cart Item Quantity
   const handleUpdateCartQty = (cartItemId: string, delta: number) => {
     setCart(prev => {
-      const item = prev.find(i => i.cartItemId === cartItemId);
-      if (!item) return prev;
+      const safePrev = Array.isArray(prev) ? prev : [];
+      const item = safePrev.find(i => i && i.cartItemId === cartItemId);
+      if (!item) return safePrev;
 
-      const maxStock = item.selectedVariation?.optionStock ?? item.product.stock;
+      const maxStock = item.selectedVariation?.optionStock ?? item.product?.stock ?? 999;
       const targetQty = item.quantity + delta;
 
       if (targetQty <= 0) {
-        return prev.filter(i => i.cartItemId !== cartItemId);
+        return safePrev.filter(i => i && i.cartItemId !== cartItemId);
       }
 
       if (targetQty > maxStock) {
-        alert(`Batas stok tercapai. Maksimal ${maxStock} ${item.product.unit}.`);
-        return prev;
+        alert(`Batas stok tercapai. Maksimal ${maxStock} ${item.product?.unit || 'item'}.`);
+        return safePrev;
       }
 
-      return prev.map(i => i.cartItemId === cartItemId ? { ...i, quantity: targetQty } : i);
+      return safePrev.map(i => i.cartItemId === cartItemId ? { ...i, quantity: targetQty } : i);
     });
   };
 
   // Remove Item from Cart
   const handleRemoveFromCart = (cartItemId: string) => {
-    setCart(prev => prev.filter(i => i.cartItemId !== cartItemId));
+    setCart(prev => (Array.isArray(prev) ? prev : []).filter(i => i && i.cartItemId !== cartItemId));
   };
 
   // Cart Metrics

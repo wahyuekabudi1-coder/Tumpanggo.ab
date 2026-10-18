@@ -12,7 +12,7 @@ import {
   Merchant, MenuItem, Category, Order, OrderStatus, Settlement, SettlementStatus 
 } from '../types.ts';
 import { compressImage } from '../utils/imageCompressor.ts';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   Store, ClipboardList, Utensils, TrendingUp, Calendar, Clock, DollarSign, 
   Settings, LogOut, Plus, Check, X, Edit, Trash2, CheckSquare, Layers,
@@ -77,11 +77,11 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
     setLoading(true);
     try {
       const [profRes, ordRes, menuRes, catRes, setRes] = await Promise.all([
-        fetch(`/api/merchants/${merchantId}`).then(r => r.json()).catch(() => null),
-        fetch(`/api/merchants/${merchantId}/orders`).then(r => r.json()).catch(() => []),
-        fetch(`/api/merchants/${merchantId}/menu`).then(r => r.json()).catch(() => []),
-        fetch(`/api/merchants/${merchantId}/categories`).then(r => r.json()).catch(() => []),
-        fetch(`/api/merchants/${merchantId}/settlements`).then(r => r.json()).catch(() => [])
+        fetch(`/api/merchants/${merchantId}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/merchants/${merchantId}/orders`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/merchants/${merchantId}/menu`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/merchants/${merchantId}/categories`).then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch(`/api/merchants/${merchantId}/settlements`).then(r => r.ok ? r.json() : []).catch(() => [])
       ]);
 
       if (profRes && profRes.id) {
@@ -104,10 +104,10 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
         setPreOrderLeadDays(profRes.preOrderLeadDays || 1);
       }
 
-      setOrders(Array.isArray(ordRes) ? ordRes : []);
-      setMenuItems(Array.isArray(menuRes) ? menuRes : []);
-      setCategories(Array.isArray(catRes) ? catRes : []);
-      setSettlements(Array.isArray(setRes) ? setRes : []);
+      setOrders(extractArrayResponse<Order>(ordRes, 'orders'));
+      setMenuItems(extractArrayResponse<MenuItem>(menuRes, 'menuItems'));
+      setCategories(extractArrayResponse<Category>(catRes, 'categories'));
+      setSettlements(extractArrayResponse<Settlement>(setRes, 'settlements'));
     } catch (e) {
       console.error('Error fetching merchant data:', e);
     } finally {
@@ -309,14 +309,15 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
   };
 
   // Filtered orders
-  const needCookingOrders = orders.filter(o => o.status === OrderStatus.PAYMENT_VERIFIED);
-  const cookingOrders = orders.filter(o => o.status === OrderStatus.COOKING);
-  const readyOrders = orders.filter(o => [OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status));
-  const historyOrders = orders.filter(o => [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.PAYMENT_REJECTED].includes(o.status));
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const needCookingOrders = safeOrders.filter(o => o && o.status === OrderStatus.PAYMENT_VERIFIED);
+  const cookingOrders = safeOrders.filter(o => o && o.status === OrderStatus.COOKING);
+  const readyOrders = safeOrders.filter(o => o && [OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status));
+  const historyOrders = safeOrders.filter(o => o && [OrderStatus.COMPLETED, OrderStatus.CANCELLED, OrderStatus.PAYMENT_REJECTED].includes(o.status));
 
-  const totalCompletedSales = historyOrders
-    .filter(o => o.status === OrderStatus.COMPLETED)
-    .reduce((sum, o) => sum + (o.subtotal || 0), 0);
+  const totalCompletedSales = (Array.isArray(historyOrders) ? historyOrders : [])
+    .filter(o => o && o.status === OrderStatus.COMPLETED)
+    .reduce((sum, o) => sum + (o?.subtotal || 0), 0);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
@@ -708,7 +709,7 @@ export default function MerchantView({ merchantId, onLogout }: MerchantViewProps
                 <span className="font-display font-extrabold text-xl text-emerald-800 mt-1 block">
                   Rp {totalCompletedSales.toLocaleString('id-ID')}
                 </span>
-                <span className="text-[11px] text-slate-500 font-medium mt-1 block">Dari {historyOrders.filter(o => o.status === OrderStatus.COMPLETED).length} pesanan</span>
+                <span className="text-[11px] text-slate-500 font-medium mt-1 block">Dari {(Array.isArray(historyOrders) ? historyOrders : []).filter(o => o && o.status === OrderStatus.COMPLETED).length} pesanan</span>
               </div>
 
               <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">

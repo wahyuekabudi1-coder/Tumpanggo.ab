@@ -24,12 +24,14 @@ export default function SimulatedMailbox() {
     try {
       const stored = safeStorage.getItem('tumpang_simulated_emails');
       if (stored) {
-        setEmails(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setEmails(Array.isArray(parsed) ? parsed : []);
       } else {
         setEmails([]);
       }
     } catch (e) {
       console.error('Failed to parse simulated emails:', e);
+      setEmails([]);
     }
   };
 
@@ -49,14 +51,14 @@ export default function SimulatedMailbox() {
   }, []);
 
   const handleMarkAllRead = () => {
-    const updated = emails.map(email => ({ ...email, read: true }));
+    const updated = (Array.isArray(emails) ? emails : []).map(email => ({ ...email, read: true }));
     setEmails(updated);
     safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
   };
 
   const handleDeleteEmail = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = emails.filter(email => email.id !== id);
+    const updated = (Array.isArray(emails) ? emails : []).filter(email => email && email.id !== id);
     setEmails(updated);
     safeStorage.setItem('tumpang_simulated_emails', JSON.stringify(updated));
     if (selectedEmail?.id === id) {
@@ -97,7 +99,7 @@ export default function SimulatedMailbox() {
     };
   };
 
-  const unreadCount = emails.filter(e => !e.read).length;
+  const unreadCount = (Array.isArray(emails) ? emails : []).filter(e => e && !e.read).length;
 
   return (
     <>

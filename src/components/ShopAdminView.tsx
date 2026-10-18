@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { compressImage } from '../utils/imageCompressor';
 import { safeStorage } from '../utils/safeStorage.ts';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 
 interface ShopAdminViewProps {
   onBackToCustomer?: () => void;
@@ -195,10 +195,10 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
       ]);
 
       if (metricsRes.ok) setMetrics(await metricsRes.json());
-      if (ordersRes.ok) setOrders(await ordersRes.json());
-      if (productsRes.ok) setProducts(await productsRes.json());
-      if (categoriesRes.ok) setCategories(await categoriesRes.json());
-      if (shipmentsRes.ok) setShipments(await shipmentsRes.json());
+      if (ordersRes.ok) setOrders(extractArrayResponse<ShopOrder>(await ordersRes.json(), 'orders'));
+      if (productsRes.ok) setProducts(extractArrayResponse<ShopProduct>(await productsRes.json(), 'products'));
+      if (categoriesRes.ok) setCategories(extractArrayResponse<ShopCategory>(await categoriesRes.json(), 'categories'));
+      if (shipmentsRes.ok) setShipments(extractArrayResponse<ShopShipment>(await shipmentsRes.json(), 'shipments'));
       if (configRes.ok) {
         const conf = await configRes.json();
         setConfig(conf);
@@ -604,13 +604,14 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
 
   // Filtered Orders Memo
   const filteredOrders = useMemo(() => {
-    return orders.filter(o => {
+    return (Array.isArray(orders) ? orders : []).filter(o => {
+      if (!o) return false;
       const matchesPayment = orderFilterPayment === 'all' || o.paymentStatus === orderFilterPayment;
       const matchesStatus = orderFilterStatus === 'all' || o.orderStatus === orderFilterStatus;
       const matchesSearch = !orderSearchQuery.trim() || 
-        o.orderNumber.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-        o.customerName.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-        o.customerPhone.includes(orderSearchQuery);
+        (o.orderNumber || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (o.customerName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+        (o.customerPhone || '').includes(orderSearchQuery.trim());
       return matchesPayment && matchesStatus && matchesSearch;
     });
   }, [orders, orderFilterPayment, orderFilterStatus, orderSearchQuery]);
@@ -1381,8 +1382,8 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {categories.map(cat => {
-                const productCount = products.filter(p => p.categoryId === cat.id).length;
+              {(Array.isArray(categories) ? categories : []).map(cat => {
+                const productCount = (Array.isArray(products) ? products : []).filter(p => p && p.categoryId === cat.id).length;
 
                 return (
                   <div key={cat.id} className="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-xs flex flex-col justify-between gap-3">
@@ -2300,7 +2301,7 @@ export default function ShopAdminView({ onBackToCustomer }: ShopAdminViewProps) 
                         <img src={img} alt="Foto" className="w-14 h-14 rounded-xl object-cover border border-slate-200" />
                         <button
                           type="button"
-                          onClick={() => setProductForm(prev => ({ ...prev, images: prev.images.filter((_, idx) => idx !== i) }))}
+                          onClick={() => setProductForm(prev => ({ ...prev, images: (Array.isArray(prev.images) ? prev.images : []).filter((_, idx) => idx !== i) }))}
                           className="absolute -top-1 -right-1 bg-rose-600 text-white rounded-full p-0.5 shadow-xs cursor-pointer"
                           title="Hapus Foto"
                         >

@@ -6,15 +6,16 @@ import MapPicker from './MapPicker.tsx';
 import Logo from './Logo.tsx';
 import BannerCarousel from './BannerCarousel.tsx';
 import ShopMarketplaceView from './ShopMarketplaceView.tsx';
+import ErrorBoundary from './ErrorBoundary.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
   Download, Smartphone, Info, Home, UserPlus, Bike, Users, XCircle, Key, ShieldCheck,
   Wifi, Utensils, Car, Wallet, QrCode, Send, CreditCard, ArrowUpRight, ArrowDownLeft,
-  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart
+  ExternalLink, Globe, Lock, Crown, Sparkles, Building2, BadgeCheck, Award, TrendingUp, ChevronLeft, ChevronRight, Heart, AlertCircle
 } from 'lucide-react';
 
 interface CustomerViewProps {
@@ -70,7 +71,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [payTransactions, setPayTransactions] = useState<any[]>(() => {
     try {
       const saved = safeStorage.getItem('tumpang_pay_transactions');
-      return saved ? JSON.parse(saved) : [
+      const parsed = saved ? JSON.parse(saved) : null;
+      return Array.isArray(parsed) ? parsed : [
         { id: 'tx_1', title: 'Top Up via Agen Tumpang', amount: 50000, type: 'in', date: 'Hari ini, 09:30', category: 'topup' },
         { id: 'tx_2', title: 'Pembayaran Bakso Solo Mas Tumpang', amount: 25000, type: 'out', date: 'Kemarin, 13:15', category: 'food' },
         { id: 'tx_3', title: 'Transfer dari Sdr. Slamet', amount: 100000, type: 'in', date: '19 Jul 2026, 18:00', category: 'transfer' },
@@ -202,7 +204,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [taxiTripsHistory, setTaxiTripsHistory] = useState<any[]>(() => {
     try {
       const saved = safeStorage.getItem('tumpang_taxi_trips');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -238,11 +241,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const handleDecreaseShopCart = (itemId: string) => {
     setShopCart(prev => {
-      const existing = prev.find(i => i.id === itemId);
+      const safePrev = Array.isArray(prev) ? prev : [];
+      const existing = safePrev.find(i => i && i.id === itemId);
       if (existing && existing.qty > 1) {
-        return prev.map(i => i.id === itemId ? { ...i, qty: i.qty - 1 } : i);
+        return safePrev.map(i => i.id === itemId ? { ...i, qty: i.qty - 1 } : i);
       }
-      return prev.filter(i => i.id !== itemId);
+      return safePrev.filter(i => i && i.id !== itemId);
     });
   };
 
@@ -416,6 +420,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   }, [isApkModalOpen, isApkDownloaded]);
 
   const [merchants, setMerchants] = useState<Merchant[]>([]);
+  const [merchantsLoading, setMerchantsLoading] = useState<boolean>(true);
+  const [merchantsError, setMerchantsError] = useState<string | null>(null);
   const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null);
   const [selectedMerchantMenu, setSelectedMerchantMenu] = useState<MenuItem[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -429,7 +435,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   const [cart, setCart] = useState<OrderItem[]>(() => {
     try {
       const saved = safeStorage.getItem('tumpang_cart');
-      return saved ? JSON.parse(saved) : [];
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -580,7 +587,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const res = await fetch('/api/partner-registrations');
       if (res.ok) {
         const data = await res.json();
-        const match = data.find((r: any) => r.id === id || r.email?.trim().toLowerCase() === email?.trim().toLowerCase());
+        const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        const match = list.find((r: any) => r && (r.id === id || r.email?.trim().toLowerCase() === email?.trim().toLowerCase()));
         if (match) {
           setActiveRegistration(match);
         } else {
@@ -904,12 +912,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   }, []);
 
   const fetchMerchants = async () => {
+    setMerchantsLoading(true);
+    setMerchantsError(null);
     try {
       const res = await fetch('/api/merchants');
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        const errMsg = errJson?.error || errJson?.detail || `Gagal memuat toko (HTTP ${res.status})`;
+        throw new Error(errMsg);
+      }
       const data = await res.json();
-      setMerchants(data);
-    } catch (e) {
+      const list = extractArrayResponse<Merchant>(data, 'merchants');
+      setMerchants(list);
+    } catch (e: any) {
       console.error('Error fetching merchants:', e);
+      setMerchants([]);
+      setMerchantsError(e.message || 'Gagal memuat daftar toko kuliner.');
+    } finally {
+      setMerchantsLoading(false);
     }
   };
 
@@ -918,19 +938,31 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     try {
       // Get menu
       const menuRes = await fetch(`/api/merchants/${merchant.id}/menu`);
-      const menuData = await menuRes.json();
-      setSelectedMerchantMenu(menuData);
+      if (menuRes.ok) {
+        const menuData = await menuRes.json();
+        const menuList = extractArrayResponse<MenuItem>(menuData, 'menuItems');
+        setSelectedMerchantMenu(menuList);
+      } else {
+        setSelectedMerchantMenu([]);
+      }
 
       // Get categories
       const catRes = await fetch(`/api/merchants/${merchant.id}/categories`);
-      const catData = await catRes.json();
-      setCategories(catData);
+      if (catRes.ok) {
+        const catData = await catRes.json();
+        const catList = extractArrayResponse<Category>(catData, 'categories');
+        setCategories(catList);
+      } else {
+        setCategories([]);
+      }
       
       setSelectedCategory('all');
       setActiveTab('merchant-detail');
       setHomeSubView('food');
     } catch (e) {
       console.error('Error loading merchant detail:', e);
+      setSelectedMerchantMenu([]);
+      setCategories([]);
     }
   };
 
@@ -1019,7 +1051,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
   const removeFromCart = (menuItemId: string) => {
     setCart(prev => {
-      const updated = prev.filter(i => i.menuItemId !== menuItemId);
+      const safePrev = Array.isArray(prev) ? prev : [];
+      const updated = safePrev.filter(i => i && i.menuItemId !== menuItemId);
       if (updated.length === 0) {
         setCartMerchantId(null);
         setCartMerchant(null);
@@ -1056,11 +1089,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       return;
     }
 
+    const safeCart = Array.isArray(cart) ? cart : [];
     const isPreOrder = cartMerchant?.preOrderOnly || checkoutDeliveryType === 'PREORDER';
 
     // Validate that instant delivery does not contain pre-order-only items
     if (!isPreOrder) {
-      const nonInstantItems = cart.filter(item => item.allowInstant === false);
+      const nonInstantItems = safeCart.filter(item => item && item.allowInstant === false);
       if (nonInstantItems.length > 0) {
         const itemNames = nonInstantItems.map(item => `- ${item.name}`).join('\n');
         alert(`Beberapa item dalam keranjang Anda hanya bisa dipesan melalui Pre-Order (tidak bisa dipesan langsung):\n${itemNames}\n\nSilakan ubah metode pemesanan ke Pre-Order atau hapus item tersebut.`);
@@ -1076,7 +1110,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       }
 
       // Check item-specific minimums
-      const invalidItems = cart.filter(item => {
+      const invalidItems = safeCart.filter(item => {
+        if (!item) return false;
         const min = getMenuItemPreOrderMin(item);
         return item.quantity < min;
       });
@@ -1294,11 +1329,18 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     setHistoryLoading(true);
     try {
       const res = await fetch(`/api/orders/customer/${historyPhone}`);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => null);
+        throw new Error(errJson?.error || `Gagal memuat riwayat pesanan (HTTP ${res.status})`);
+      }
       const data = await res.json();
-      setHistoryOrders(data);
+      const list = extractArrayResponse<Order>(data, 'orders');
+      setHistoryOrders(list);
       setHistorySearched(true);
     } catch (err) {
       console.error('History fetch error:', err);
+      setHistoryOrders([]);
+      setHistorySearched(true);
     } finally {
       setHistoryLoading(false);
     }
@@ -1330,16 +1372,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   };
 
   // Filter merchants by search query and category
-  const filteredMerchants = merchants.filter(m => {
+  const filteredMerchants = (Array.isArray(merchants) ? merchants : []).filter(m => {
+    if (!m) return false;
     const query = searchQuery.toLowerCase();
-    const matchesSearch = m.name.toLowerCase().includes(query) || m.description.toLowerCase().includes(query) || m.address.toLowerCase().includes(query);
+    const name = (m.name || '').toLowerCase();
+    const description = (m.description || '').toLowerCase();
+    const address = (m.address || '').toLowerCase();
+    const matchesSearch = name.includes(query) || description.includes(query) || address.includes(query);
     
     if (selectedMerchantCategory === 'all') {
       return matchesSearch;
     }
     
     const mCategory = getMerchantCategory(m);
-    const selectedCatObj = CULINARY_CATEGORIES.find(c => c.id === selectedMerchantCategory);
+    const selectedCatObj = (Array.isArray(CULINARY_CATEGORIES) ? CULINARY_CATEGORIES : []).find(c => c && c.id === selectedMerchantCategory);
     if (!selectedCatObj) return matchesSearch;
     
     return matchesSearch && mCategory === selectedCatObj.name;
@@ -1975,7 +2021,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
                   {/* Merchant Cards Grid */}
                   <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                    {merchants.slice(0, 4).map((merchant, idx) => (
+                    {(Array.isArray(merchants) ? merchants : []).slice(0, 4).map((merchant, idx) => (
                       <div 
                         key={`featured-${merchant.id}`}
                         onClick={() => {
@@ -2081,7 +2127,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 sm:gap-3">
-                    {merchants.slice(0, 3).map(m => (
+                    {(Array.isArray(merchants) ? merchants : []).slice(0, 3).map(m => (
                       <div 
                         key={m.id}
                         onClick={() => {
@@ -2272,7 +2318,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                 <span className="text-[11px] font-semibold text-slate-500">{filteredMerchants.length} Toko</span>
               </div>
 
-              {filteredMerchants.length === 0 ? (
+              {merchantsLoading ? (
+                <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 shadow-sm animate-pulse">
+                  <RefreshCw className="w-8 h-8 text-rose-500 animate-spin mx-auto mb-2" />
+                  <p className="text-slate-600 text-sm font-semibold">Memuat daftar toko kuliner...</p>
+                </div>
+              ) : merchantsError ? (
+                <div className="text-center py-8 px-4 bg-rose-50 rounded-2xl border border-rose-200 shadow-sm">
+                  <AlertCircle className="w-8 h-8 text-rose-500 mx-auto mb-2" />
+                  <p className="text-slate-800 text-sm font-bold">Gagal memuat toko kuliner</p>
+                  <p className="text-rose-700 text-xs mt-1 max-w-sm mx-auto">{merchantsError}</p>
+                  <button 
+                    onClick={() => fetchMerchants()} 
+                    className="mt-3 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer"
+                  >
+                    Coba Lagi
+                  </button>
+                </div>
+              ) : filteredMerchants.length === 0 ? (
                 <div className="text-center py-10 bg-white rounded-2xl border border-slate-200 shadow-sm">
                   <Store className="w-10 h-10 text-slate-300 mx-auto" />
                   <p className="text-slate-400 text-sm mt-2">Tidak menemukan toko kuliner yang cocok.</p>
@@ -2478,7 +2541,9 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         {/* Tumpang Shop - Live Marketplace View */}
         {homeSubView === 'shop' && (
           <div className="pb-24 animate-in fade-in duration-200">
-            <ShopMarketplaceView onBackToMain={() => setHomeSubView('main')} />
+            <ErrorBoundary fallbackTitle="Kendala Memuat Tumpang Shop">
+              <ShopMarketplaceView onBackToMain={() => setHomeSubView('main')} />
+            </ErrorBoundary>
           </div>
         )}
 
@@ -3172,8 +3237,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
               {/* Menu List */}
               <div className="flex flex-col gap-3 mt-3">
-                {selectedMerchantMenu
-                  .filter(item => selectedCategory === 'all' || item.categoryId === selectedCategory)
+                {(Array.isArray(selectedMerchantMenu) ? selectedMerchantMenu : [])
+                  .filter(item => item && (selectedCategory === 'all' || item.categoryId === selectedCategory))
                   .map(item => (
                     <div 
                       key={item.id}
@@ -3520,17 +3585,20 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
             {/* Portions/Items Progress and Validation for Pre-order */}
             {(() => {
+              if (!cartMerchant) return null;
               const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
               if (!isPreOrder) return null;
 
-              const invalidItems = cart.filter(item => {
+              const safeCart = Array.isArray(cart) ? cart : [];
+              const invalidItems = safeCart.filter(item => {
+                if (!item) return false;
                 const min = getMenuItemPreOrderMin(item);
                 return item.quantity < min;
               });
 
               const hasInvalidItem = invalidItems.length > 0;
               const merchantMin = Number(cartMerchant.preOrderMinAmount || 0);
-              const totalQty = cart.reduce((sum, item) => Number(sum) + Number(item.quantity), 0);
+              const totalQty = safeCart.reduce((sum, item) => Number(sum) + Number(item?.quantity || 0), 0);
               const isTotalInvalid = totalQty < merchantMin;
 
               const isBlocked = hasInvalidItem || isTotalInvalid;
@@ -3637,16 +3705,19 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
             </div>
 
             {(() => {
+              if (!cartMerchant) return null;
               const isPreOrder = cartMerchant.preOrderOnly || checkoutDeliveryType === 'PREORDER';
               
-              const invalidItems = isPreOrder ? cart.filter(item => {
+              const safeCart = Array.isArray(cart) ? cart : [];
+              const invalidItems = isPreOrder ? safeCart.filter(item => {
+                if (!item) return false;
                 const min = getMenuItemPreOrderMin(item);
                 return item.quantity < min;
               }) : [];
 
               const hasInvalidItem = invalidItems.length > 0;
               const merchantMin = Number(cartMerchant.preOrderMinAmount || 0);
-              const totalQty = cart.reduce((sum, item) => Number(sum) + Number(item.quantity), 0);
+              const totalQty = safeCart.reduce((sum, item) => Number(sum) + Number(item?.quantity || 0), 0);
               const isTotalInvalid = isPreOrder && totalQty < merchantMin;
 
               const isBlocked = isPreOrder && (hasInvalidItem || isTotalInvalid);

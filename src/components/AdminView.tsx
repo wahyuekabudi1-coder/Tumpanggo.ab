@@ -12,7 +12,7 @@ import {
   Order, OrderStatus, Merchant, Driver, Settlement, SettlementStatus, SystemConfig 
 } from '../types.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
-import { apiFetch as fetch } from '../utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
 import { 
   ShieldCheck, CheckSquare, ClipboardList, Store, Users, DollarSign, Settings, 
   Check, X, FileText, AlertTriangle, Truck, RefreshCw, ZoomIn, Eye,
@@ -75,18 +75,18 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      const [ordRes, merRes, drRes, setRes, prRes] = await Promise.all([
-        fetch('/api/orders').then(r => r.json()).catch(() => []),
-        fetch('/api/merchants').then(r => r.json()).catch(() => []),
-        fetch('/api/drivers').then(r => r.json()).catch(() => []),
-        fetch('/api/settlements').then(r => r.json()).catch(() => []),
-        fetch('/api/partner-registrations').then(r => r.json()).catch(() => [])
+      const [ordData, merData, drData, setData, prData] = await Promise.all([
+        fetch('/api/orders').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/merchants').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/drivers').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/settlements').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/partner-registrations').then(r => r.ok ? r.json() : []).catch(() => [])
       ]);
-      setOrders(Array.isArray(ordRes) ? ordRes : []);
-      setMerchants(Array.isArray(merRes) ? merRes : []);
-      setDrivers(Array.isArray(drRes) ? drRes : []);
-      setSettlements(Array.isArray(setRes) ? setRes : []);
-      setPartnerRegistrations(Array.isArray(prRes) ? prRes : []);
+      setOrders(extractArrayResponse<Order>(ordData, 'orders'));
+      setMerchants(extractArrayResponse<Merchant>(merData, 'merchants'));
+      setDrivers(extractArrayResponse<Driver>(drData, 'drivers'));
+      setSettlements(extractArrayResponse<Settlement>(setData, 'settlements'));
+      setPartnerRegistrations(extractArrayResponse<any>(prData, 'partnerRegistrations'));
     } catch (e) {
       console.error('Failed to fetch admin data:', e);
     } finally {
@@ -285,7 +285,8 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
       return;
     }
 
-    const eligible = orders.filter(o => 
+    const eligible = (Array.isArray(orders) ? orders : []).filter(o => 
+      o &&
       o.merchantId === merchantId && 
       o.status === OrderStatus.COMPLETED && 
       !(o as any).settlementId
@@ -383,29 +384,36 @@ export default function AdminView({ onLogout, systemConfig, onUpdateConfig }: Ad
   };
 
   // Metrics
-  const pendingVerificationOrders = orders.filter(o => o.status === OrderStatus.WAITING_PAYMENT_VERIFICATION);
-  const activeOrders = orders.filter(o => 
-    [OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status)
-  );
-  const completedOrders = orders.filter(o => o.status === OrderStatus.COMPLETED);
-  const pendingPartnerRegs = partnerRegistrations.filter(r => r.status === 'PENDING');
-  const totalGrossRevenue = completedOrders.reduce((sum, o) => sum + (o.total || 0), 0);
-  const totalPlatformCommission = Math.round(completedOrders.reduce((sum, o) => sum + (o.subtotal || 0) * 0.1, 0));
+  const safeOrders = Array.isArray(orders) ? orders : [];
+  const safePartnerRegs = Array.isArray(partnerRegistrations) ? partnerRegistrations : [];
+  const safeMerchants = Array.isArray(merchants) ? merchants : [];
 
-  const filteredOrders = orders.filter(o => {
+  const pendingVerificationOrders = safeOrders.filter(o => o && o.status === OrderStatus.WAITING_PAYMENT_VERIFICATION);
+  const activeOrders = safeOrders.filter(o => 
+    o && [OrderStatus.COOKING, OrderStatus.READY_FOR_PICKUP, OrderStatus.ORDER_PICKED_UP].includes(o.status)
+  );
+  const completedOrders = safeOrders.filter(o => o && o.status === OrderStatus.COMPLETED);
+  const pendingPartnerRegs = safePartnerRegs.filter(r => r && r.status === 'PENDING');
+  const totalGrossRevenue = completedOrders.reduce((sum, o) => sum + (o?.total || 0), 0);
+  const totalPlatformCommission = Math.round(completedOrders.reduce((sum, o) => sum + (o?.subtotal || 0) * 0.1, 0));
+
+  const filteredOrders = safeOrders.filter(o => {
+    if (!o) return false;
     const matchQuery = orderSearchQuery === '' || 
-      o.id.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-      o.customerName.toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
-      o.merchantName.toLowerCase().includes(orderSearchQuery.toLowerCase());
+      (o.id || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+      (o.customerName || '').toLowerCase().includes(orderSearchQuery.toLowerCase()) ||
+      (o.merchantName || '').toLowerCase().includes(orderSearchQuery.toLowerCase());
     const matchStatus = orderStatusFilter === 'ALL' || o.status === orderStatusFilter;
     return matchQuery && matchStatus;
   });
 
-  const filteredMerchants = merchants.filter(m => 
-    merchantSearchQuery === '' ||
-    m.name.toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
-    m.ownerName.toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
-    (m.category && m.category.toLowerCase().includes(merchantSearchQuery.toLowerCase()))
+  const filteredMerchants = safeMerchants.filter(m => 
+    m && (
+      merchantSearchQuery === '' ||
+      (m.name || '').toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
+      (m.ownerName || '').toLowerCase().includes(merchantSearchQuery.toLowerCase()) ||
+      (m.category && m.category.toLowerCase().includes(merchantSearchQuery.toLowerCase()))
+    )
   );
 
   return (

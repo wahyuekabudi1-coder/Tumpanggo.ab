@@ -12,9 +12,10 @@ import AuthModal from './components/AuthModal.tsx';
 import PortalLogin from './components/PortalLogin.tsx';
 import MerchantRegisterPage from './components/MerchantRegisterPage.tsx';
 import ShopAdminView from './components/ShopAdminView.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { SystemConfig } from './types.ts';
 import { safeStorage } from './utils/safeStorage.ts';
-import { apiFetch as fetch } from './utils/apiClient.ts';
+import { apiFetch as fetch, extractArrayResponse } from './utils/apiClient.ts';
 import { ShieldAlert, Key, HelpCircle, Store, Navigation, ChevronRight } from 'lucide-react';
 
 export default function App() {
@@ -84,11 +85,23 @@ export default function App() {
   useEffect(() => {
     setLoadingSelection(true);
     Promise.all([
-      fetch('/api/merchants').then(res => res.json()).catch(() => []),
-      fetch('/api/drivers').then(res => res.json()).catch(() => [])
+      fetch('/api/merchants')
+        .then(async res => {
+          if (!res.ok) return [];
+          const data = await res.json();
+          return extractArrayResponse<any>(data, 'merchants');
+        })
+        .catch(() => []),
+      fetch('/api/drivers')
+        .then(async res => {
+          if (!res.ok) return [];
+          const data = await res.json();
+          return extractArrayResponse<any>(data, 'drivers');
+        })
+        .catch(() => [])
     ]).then(([merData, drData]) => {
-      setMerchants(merData);
-      setDrivers(drData);
+      setMerchants(Array.isArray(merData) ? merData : []);
+      setDrivers(Array.isArray(drData) ? drData : []);
       setLoadingSelection(false);
     });
   }, []);
@@ -102,8 +115,9 @@ export default function App() {
 
   // Auto-route logged in merchant owners to their specific store
   useEffect(() => {
-    if (currentRole === 'MERCHANT' && !activeMerchantId && verifiedEmail && !isAdminEmail(verifiedEmail) && merchants.length > 0) {
-      const ownedMerchant = merchants.find(m => m.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
+    const safeMerchants = Array.isArray(merchants) ? merchants : [];
+    if (currentRole === 'MERCHANT' && !activeMerchantId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeMerchants.length > 0) {
+      const ownedMerchant = safeMerchants.find(m => m && m.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
       if (ownedMerchant) {
         setActiveMerchantId(ownedMerchant.id);
       } else {
@@ -116,8 +130,9 @@ export default function App() {
 
   // Auto-route logged in drivers to their specific driver panel
   useEffect(() => {
-    if (currentRole === 'DRIVER' && !activeDriverId && verifiedEmail && !isAdminEmail(verifiedEmail) && drivers.length > 0) {
-      const matchedDriver = drivers.find(d => d.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
+    const safeDrivers = Array.isArray(drivers) ? drivers : [];
+    if (currentRole === 'DRIVER' && !activeDriverId && verifiedEmail && !isAdminEmail(verifiedEmail) && safeDrivers.length > 0) {
+      const matchedDriver = safeDrivers.find(d => d && d.email?.trim().toLowerCase() === verifiedEmail.trim().toLowerCase());
       if (matchedDriver) {
         setActiveDriverId(matchedDriver.id);
       } else {
@@ -194,10 +209,10 @@ export default function App() {
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
             {loadingSelection ? (
               <div className="py-6 text-center text-xs text-slate-400 animate-pulse">Memuat daftar toko...</div>
-            ) : merchants.length === 0 ? (
+            ) : (!Array.isArray(merchants) || merchants.length === 0) ? (
               <div className="py-6 text-center text-xs text-slate-400">Tidak ada toko terdaftar. Hubungi Admin.</div>
             ) : (
-              merchants.map((m) => (
+              (Array.isArray(merchants) ? merchants : []).map((m) => (
                 <button
                   key={m.id}
                   onClick={() => setActiveMerchantId(m.id)}
@@ -237,10 +252,10 @@ export default function App() {
           <div className="mt-6 flex flex-col gap-2 max-h-[280px] overflow-y-auto pr-1">
             {loadingSelection ? (
               <div className="py-6 text-center text-xs text-slate-400 animate-pulse">Memuat daftar kurir...</div>
-            ) : drivers.length === 0 ? (
+            ) : (!Array.isArray(drivers) || drivers.length === 0) ? (
               <div className="py-6 text-center text-xs text-slate-400">Tidak ada kurir terdaftar. Hubungi Admin.</div>
             ) : (
-              drivers.map((d) => (
+              (Array.isArray(drivers) ? drivers : []).map((d) => (
                 <button
                   key={d.id}
                   onClick={() => setActiveDriverId(d.id)}
@@ -292,13 +307,15 @@ export default function App() {
       {/* Render Current Active Portal View */}
       <div className="min-h-screen">
         {currentRole === 'CUSTOMER' && (
-          <CustomerView 
-            systemConfig={systemConfig} 
-            onSwitchView={(v) => console.log('Sub-view transition:', v)}
-            onOpenAuthModal={() => setShowAuthModal(true)}
-            onSelectRole={handleRoleSelection}
-            onInstantDashboard={handleInstantDashboardAccess}
-          />
+          <ErrorBoundary fallbackTitle="Kendala Memuat Menu Pelanggan">
+            <CustomerView 
+              systemConfig={systemConfig} 
+              onSwitchView={(v) => console.log('Sub-view transition:', v)}
+              onOpenAuthModal={() => setShowAuthModal(true)}
+              onSelectRole={handleRoleSelection}
+              onInstantDashboard={handleInstantDashboardAccess}
+            />
+          </ErrorBoundary>
         )}
 
         {currentRole === 'MERCHANT' && (
@@ -328,15 +345,17 @@ export default function App() {
               }} 
             />
           ) : (
-            <MerchantView 
-              merchantId={activeMerchantId} 
-              onLogout={() => {
-                setVerifiedEmail('');
-                safeStorage.removeItem('tumpang_auth_email');
-                setActiveMerchantId('');
-                setCurrentRole('CUSTOMER');
-              }}
-            />
+            <ErrorBoundary fallbackTitle="Kendala Memuat Portal Mitra Toko">
+              <MerchantView 
+                merchantId={activeMerchantId} 
+                onLogout={() => {
+                  setVerifiedEmail('');
+                  safeStorage.removeItem('tumpang_auth_email');
+                  setActiveMerchantId('');
+                  setCurrentRole('CUSTOMER');
+                }}
+              />
+            </ErrorBoundary>
           )
         )}
 
@@ -366,15 +385,17 @@ export default function App() {
               }} 
             />
           ) : (
-            <DriverView 
-              driverId={activeDriverId} 
-              onLogout={() => {
-                setVerifiedEmail('');
-                safeStorage.removeItem('tumpang_auth_email');
-                setActiveDriverId('');
-                setCurrentRole('CUSTOMER');
-              }}
-            />
+            <ErrorBoundary fallbackTitle="Kendala Memuat Portal Kurir">
+              <DriverView 
+                driverId={activeDriverId} 
+                onLogout={() => {
+                  setVerifiedEmail('');
+                  safeStorage.removeItem('tumpang_auth_email');
+                  setActiveDriverId('');
+                  setCurrentRole('CUSTOMER');
+                }}
+              />
+            </ErrorBoundary>
           )
         )}
 
@@ -386,22 +407,26 @@ export default function App() {
               onCancel={() => setCurrentRole('CUSTOMER')} 
             />
           ) : (
-            <AdminView 
-              systemConfig={systemConfig}
-              onUpdateConfig={(conf) => setSystemConfig(conf)}
-              onLogout={() => {
-                setVerifiedEmail('');
-                safeStorage.removeItem('tumpang_auth_email');
-                setCurrentRole('CUSTOMER');
-              }}
-            />
+            <ErrorBoundary fallbackTitle="Kendala Memuat Portal Admin">
+              <AdminView 
+                systemConfig={systemConfig}
+                onUpdateConfig={(conf) => setSystemConfig(conf)}
+                onLogout={() => {
+                  setVerifiedEmail('');
+                  safeStorage.removeItem('tumpang_auth_email');
+                  setCurrentRole('CUSTOMER');
+                }}
+              />
+            </ErrorBoundary>
           )
         )}
 
         {currentRole === 'SHOP_ADMIN' && (
-          <ShopAdminView 
-            onBackToCustomer={() => setCurrentRole('CUSTOMER')} 
-          />
+          <ErrorBoundary fallbackTitle="Kendala Memuat Admin Toko">
+            <ShopAdminView 
+              onBackToCustomer={() => setCurrentRole('CUSTOMER')} 
+            />
+          </ErrorBoundary>
         )}
       </div>
 
