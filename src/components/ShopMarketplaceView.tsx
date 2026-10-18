@@ -122,6 +122,11 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         if (cfg.publicKey) {
           (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
           (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
+          const scriptEl = document.getElementById('arto-pay-sdk-script');
+          if (scriptEl) {
+            scriptEl.setAttribute('data-client-key', cfg.publicKey);
+            scriptEl.setAttribute('data-sandbox', String(cfg.sandbox));
+          }
         }
         (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
         if (typeof configure === 'function') {

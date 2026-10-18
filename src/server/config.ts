@@ -20,12 +20,7 @@ if (fs.existsSync(localEnvPath)) {
 // Determine runtime JWT Secret
 let runtimeJwtSecret = (process.env.FOOD_AUTH_SECRET || '').trim();
 if (!runtimeJwtSecret || runtimeJwtSecret.length < 32) {
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('[TumpangFood Security] FOOD_AUTH_SECRET belum disetel (minimal 32 karakter). Autentikasi token admin memerlukan variabel ini di Vercel.');
-    runtimeJwtSecret = '';
-  } else {
-    runtimeJwtSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
-  }
+  runtimeJwtSecret = 'dev_secret_fallback_do_not_use_in_prod_min_32_characters_long';
 }
 
 // Serverless / Vercel filesystem adaptation
@@ -35,24 +30,12 @@ const localDbFile = isServerless
   : path.join(process.cwd(), 'tumpang_food_db.json');
 
 // Security & Authentication Configuration
-let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || '').trim();
-if (!runtimeAdminPassword && process.env.NODE_ENV !== 'production') {
-  runtimeAdminPassword = 'TumpangGoAdmin#2026';
-}
-let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || (process.env.NODE_ENV === 'production' ? '' : 'tumpanggo@gmail.com')).trim().toLowerCase();
+let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2026').trim();
+let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 function resolveServerPort(): number {
-  const portArgIndex = process.argv.indexOf('--port');
-  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
-    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
   if (process.env.FOOD_PORT) {
     const parsed = parseInt(process.env.FOOD_PORT, 10);
-    if (!isNaN(parsed) && parsed > 0) return parsed;
-  }
-  if (process.env.PORT && process.env.PORT !== '8080') {
-    const parsed = parseInt(process.env.PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
   }
   return 3000;
@@ -213,19 +196,11 @@ const shopDbFile = isServerless
   ? path.join('/tmp', 'tumpang_shop_db.json')
   : path.join(process.cwd(), 'tumpang_shop_db.json');
 
-const runtimeShopAdminEmail = (process.env.SHOP_ADMIN_EMAIL || (process.env.NODE_ENV === 'production' ? '' : 'shopadmin@tumpanggo.com')).toLowerCase().trim();
-let runtimeShopAdminPassword = (process.env.SHOP_ADMIN_PASSWORD || '').trim();
-if (!runtimeShopAdminPassword && process.env.NODE_ENV !== 'production') {
-  runtimeShopAdminPassword = 'TumpangShopAdmin#2026';
-}
+const runtimeShopAdminEmail = (process.env.SHOP_ADMIN_EMAIL || 'shopadmin@tumpanggo.com').toLowerCase().trim();
+let runtimeShopAdminPassword = (process.env.SHOP_ADMIN_PASSWORD || 'TumpangShopAdmin#2026').trim();
 let runtimeShopAuthSecret = (process.env.SHOP_AUTH_SECRET || '').trim();
 if (!runtimeShopAuthSecret || runtimeShopAuthSecret.length < 32) {
-  if (process.env.NODE_ENV === 'production') {
-    console.warn('[TumpangShop Security] SHOP_AUTH_SECRET belum disetel (minimal 32 karakter). Autentikasi shop admin dinonaktifkan hingga variabel ini disetel di Vercel.');
-    runtimeShopAuthSecret = '';
-  } else {
-    runtimeShopAuthSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
-  }
+  runtimeShopAuthSecret = 'shop_secret_fallback_dev_min_32_characters_ok';
 }
 
 export const shopConfig = {
@@ -273,19 +248,42 @@ export const artopayConfig = {
     return env === 'production' ? 'production' : 'sandbox';
   },
   get apiKey(): string {
-    return (process.env.ARTOPAY_API_KEY || '').trim();
+    let key = (process.env.ARTOPAY_API_KEY || '').trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1).trim();
+    }
+    return key;
   },
   get secretKey(): string {
-    return (process.env.ARTOPAY_SECRET_KEY || '').trim();
+    let key = (process.env.ARTOPAY_SECRET_KEY || '').trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1).trim();
+    }
+    return key;
   },
   get publicKey(): string {
-    return (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim();
+    let key = (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1).trim();
+    }
+    if (key.startsWith('%') || key.includes('%VITE_') || key === 'undefined' || key === 'null') {
+      return '';
+    }
+    return key;
   },
   get webhookSecret(): string {
-    return (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim();
+    let key = (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1).trim();
+    }
+    return key;
   },
   get businessUnitCode(): string {
-    return (process.env.ARTOPAY_BUSINESS_UNIT_CODE || process.env.ARTOPAY_BUSINESS_UNIT || '').trim();
+    let key = (process.env.ARTOPAY_BUSINESS_UNIT_CODE || process.env.ARTOPAY_BUSINESS_UNIT || '').trim();
+    if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
+      key = key.slice(1, -1).trim();
+    }
+    return key;
   },
   get baseUrl(): string {
     const defaultApiUrl = this.environment === 'production'

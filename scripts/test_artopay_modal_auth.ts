@@ -198,8 +198,20 @@ async function runModalAuthTestSuite() {
     'Field clientSecret pada INIT cocok dengan secret Payment Intent'
   );
   assert(
+    initMessage?.msg?.secret === 'pi_sec_test_abc123456789',
+    'Field alias secret pada INIT cocok dengan secret Payment Intent'
+  );
+  assert(
     initMessage?.msg?.token === 'ct_tok_test_def987654321',
     'Field token pada INIT cocok dengan token transaksi'
+  );
+  assert(
+    initMessage?.msg?.customerToken === 'ct_tok_test_def987654321',
+    'Field alias customerToken pada INIT cocok dengan token transaksi'
+  );
+  assert(
+    initMessage?.msg?.paymentId === '8390c046-bea2-4538-8e29-424fc34a0942',
+    'Field paymentId pada INIT cocok dengan ID transaksi'
   );
   assert(
     initMessage?.msg?.orderId === 'ord_food_real_1001',

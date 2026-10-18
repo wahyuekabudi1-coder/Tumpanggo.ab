@@ -57,6 +57,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         if (cfg.publicKey) {
           (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
           (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
+          const scriptEl = document.getElementById('arto-pay-sdk-script');
+          if (scriptEl) {
+            scriptEl.setAttribute('data-client-key', cfg.publicKey);
+            scriptEl.setAttribute('data-sandbox', String(cfg.sandbox));
+          }
         }
         (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
         if (typeof configure === 'function') {
@@ -1241,17 +1246,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   // Open official ArtoPay SDK Modal
   const handleOpenArtopaySdk = (paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean, orderId?: string) => {
     if (!activeOrder) return;
-    const targetPaymentId = paymentId || activeOrder.artopayPaymentId;
-    if (!targetPaymentId) {
-      setArtopayStatusMsg({ type: 'error', text: 'ID transaksi ArtoPay belum dibuat. Silakan klik bayar terlebih dahulu.' });
+
+    // Check if previous payment intent session has expired; if so, regenerate a fresh Payment Intent
+    const isSessionExpired = Boolean(!paymentId && activeOrder.artopayExpiredAt && new Date(activeOrder.artopayExpiredAt).getTime() < Date.now());
+    if (isSessionExpired) {
+      setArtopayStatusMsg({ type: 'info', text: 'Sesi transaksi sebelumnya telah kedaluwarsa. Memperbarui sesi baru dari gateway...' });
+      handleCreateArtoPayPayment();
       return;
     }
 
-    const targetClientSecret = clientSecret || activeOrder.artopayClientSecret;
-    const targetToken = token || activeOrder.artopayCustomerToken;
-    const targetPublicKey = publicKey || activeOrder.artopayPublicKey || (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || (import.meta as any).env?.VITE_ARTOPAY_PUBLIC_KEY || undefined;
-    const isSandbox = sandbox !== undefined ? sandbox : ((window as any).__ARTOPAY_SANDBOX__ !== undefined ? (window as any).__ARTOPAY_SANDBOX__ : true);
-    const targetOrderId = orderId || activeOrder.artopayOrderId || activeOrder.id;
+    const targetPaymentId = (paymentId || activeOrder.artopayPaymentId || '').trim();
+    if (!targetPaymentId) {
+      setArtopayStatusMsg({ type: 'error', text: 'ID transaksi ArtoPay belum dibuat. Silakan klik tombol pembayaran terlebih dahulu.' });
+      return;
+    }
+
+    const targetClientSecret = (clientSecret || activeOrder.artopayClientSecret || '').trim();
+    const targetToken = (token || activeOrder.artopayCustomerToken || '').trim() || undefined;
+    const rawPublicKey = publicKey || activeOrder.artopayPublicKey || (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || undefined;
+    const targetPublicKey = typeof rawPublicKey === 'string' && !rawPublicKey.startsWith('%') && !rawPublicKey.includes('%VITE_') && rawPublicKey !== 'undefined' && rawPublicKey !== 'null' && rawPublicKey.trim().length > 4 ? rawPublicKey.trim() : undefined;
+    const isSandbox = sandbox !== undefined ? sandbox : (activeOrder.artopaySandbox !== undefined ? activeOrder.artopaySandbox : ((window as any).__ARTOPAY_SANDBOX__ !== undefined ? (window as any).__ARTOPAY_SANDBOX__ : true));
+    const targetOrderId = (orderId || activeOrder.artopayOrderId || activeOrder.id || '').trim();
 
     if (!targetClientSecret) {
       setArtopayStatusMsg({ type: 'error', text: 'Client secret transaksi ArtoPay tidak ditemukan. Silakan buat sesi pembayaran ulang.' });
@@ -1259,7 +1274,10 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     }
 
     if (!targetPublicKey) {
-      setArtopayStatusMsg({ type: 'error', text: 'Public key ArtoPay belum tersedia. Periksa konfigurasi gateway.' });
+      setArtopayStatusMsg({ 
+        type: 'error', 
+        text: 'Public key ArtoPay (ARTOPAY_PUBLIC_KEY) belum terkonfigurasi. Pastikan ARTOPAY_PUBLIC_KEY diisi dengan kunci publik resmi dari Dashboard ArtoPay.' 
+      });
       return;
     }
 
@@ -1274,20 +1292,28 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       customerTokenPrefix: targetToken ? `${targetToken.substring(0, 7)}...` : 'missing',
       hasPublicKey: Boolean(targetPublicKey),
       publicKeyPrefix: targetPublicKey ? `${targetPublicKey.substring(0, 6)}...` : 'missing',
-      sdkParameters: ['clientSecret', 'secret', 'paymentId', 'orderId', 'token', 'customerToken', 'publicKey', 'sandbox']
+      isSessionExpired,
+      sdkParameters: ['clientSecret', 'secret', 'paymentId', 'paymentIntentId', 'orderId', 'token', 'customerToken', 'publicKey', 'clientKey', 'sandbox']
     });
 
     try {
       setArtopayStatusMsg({ type: 'info', text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...' });
+      // Ensure SDK configuration is synchronously set before opening modal
+      if (typeof configure === 'function') {
+        configure({ sandbox: isSandbox });
+      }
+
       openPayment({
         clientSecret: targetClientSecret,
         secret: targetClientSecret,
         paymentId: targetPaymentId,
+        paymentIntentId: targetPaymentId,
         orderId: targetOrderId,
         token: targetToken,
         customerToken: targetToken,
         sandbox: isSandbox,
         publicKey: targetPublicKey,
+        clientKey: targetPublicKey,
         onSuccess: async () => {
           setArtopayStatusMsg({ type: 'success', text: 'Pembayaran terdeteksi! Memverifikasi status ke backend...' });
           // Strictly verify via backend API to prevent client-side spoofing
@@ -1299,7 +1325,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         },
         onError: (err: any) => {
           console.warn('[ArtoPay SDK Error]', err);
-          setArtopayStatusMsg({ type: 'error', text: `Gateway: ${err?.message || 'Gagal memproses pembayaran di gateway ArtoPay.'}` });
+          const errMsg = err?.message || err?.transactionStatus || 'Gagal memproses pembayaran di gateway ArtoPay.';
+          let userHint = `Gateway: ${errMsg}`;
+          if (typeof errMsg === 'string' && (errMsg.includes('oapi') || errMsg.includes('authentication'))) {
+            userHint = 'Autentikasi gateway ArtoPay gagal (OAPI). Pastikan ARTOPAY_PUBLIC_KEY dan ARTOPAY_SECRET_KEY berasal dari akun merchant dan environment yang sama di Dashboard ArtoPay, serta domain aplikasi telah diizinkan (whitelisted) di dashboard merchant.';
+          }
+          setArtopayStatusMsg({ type: 'error', text: userHint });
           handleCheckArtoPayStatus();
         },
         onClose: () => {
@@ -1356,6 +1387,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         artopayCustomerToken: data.customerToken,
         artopayPublicKey: data.publicKey,
         artopayOrderId: data.orderId || activeOrder.id,
+        artopaySandbox: data.sandbox,
         artopayStatus: 'PENDING',
         paymentMethod: 'ARTOPAY_QRIS',
         artopayExpiredAt: data.expiresAt

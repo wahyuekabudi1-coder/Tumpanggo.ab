@@ -269,6 +269,27 @@ export function extractArtoPayCustomerToken(data: any): string {
   return '';
 }
 
+/**
+ * Validates and normalizes public key, stripping quotes and rejecting placeholder tokens.
+ */
+export function cleanPublicKey(key?: string): string | undefined {
+  if (!key || typeof key !== 'string') return undefined;
+  let trimmed = key.trim();
+  if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  if (
+    trimmed.startsWith('%') ||
+    trimmed.includes('%VITE_') ||
+    trimmed === 'undefined' ||
+    trimmed === 'null' ||
+    trimmed.length < 5
+  ) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 export class ArtoPayService {
   /**
    * Generates a new Payment Intent through ArtoPay Payment Link API.
@@ -473,7 +494,7 @@ export class ArtoPayService {
       qrString: resJson.qrString || nestedData?.qrString || resJson.qrCodeUrl || nestedData?.qrCodeUrl || undefined,
       clientSecret,
       customerToken,
-      publicKey: artopayConfig.publicKey || undefined,
+      publicKey: cleanPublicKey(artopayConfig.publicKey) || undefined,
       sandbox: artopayConfig.environment !== 'production',
       status: 'PENDING',
       expiresAt: resJson.expiresAt || nestedData?.expiresAt || expiresAt,
@@ -677,17 +698,19 @@ export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams)
   // Mode 2: Official ArtoPay SDK Modal mechanism
   if (typeof window !== 'undefined') {
     try {
+      const safePubKey = cleanPublicKey(data.publicKey);
       // Safe diagnostic logging (No full tokens/secrets leaked)
-      console.log('[ArtoPay Modal Diagnostics]', {
+      console.log('[ArtoPay Modal Diagnostics - Client]', {
         environment: data.sandbox ? 'sandbox' : 'production',
         orderId: data.orderId || cleanOrderId,
         paymentIntentId,
+        httpStatus: res.status,
         hasClientSecret: Boolean(data.clientSecret),
         clientSecretPrefix: data.clientSecret ? `${data.clientSecret.substring(0, 7)}...` : 'missing',
         hasCustomerToken: Boolean(data.customerToken),
         customerTokenPrefix: data.customerToken ? `${data.customerToken.substring(0, 7)}...` : 'missing',
-        hasPublicKey: Boolean(data.publicKey),
-        publicKeyPrefix: data.publicKey ? `${data.publicKey.substring(0, 6)}...` : 'missing',
+        hasPublicKey: Boolean(safePubKey),
+        publicKeyPrefix: safePubKey ? `${safePubKey.substring(0, 6)}...` : 'missing',
         sdkParameters: ['clientSecret', 'secret', 'paymentId', 'orderId', 'token', 'customerToken', 'publicKey', 'sandbox']
       });
 
@@ -702,7 +725,7 @@ export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams)
           token: data.customerToken,
           customerToken: data.customerToken,
           sandbox: data.sandbox !== undefined ? data.sandbox : true,
-          publicKey: data.publicKey,
+          publicKey: safePubKey,
           onSuccess,
           onPending,
           onError,

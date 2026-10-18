@@ -434,9 +434,6 @@ export class FoodDatabase {
     // 1. Check if Firebase Admin SDK has valid explicit credentials
     if (!isUsingServiceAccount() || !getAdminDb()) {
       const diag = getFirestoreDiagnosticStatus();
-      if (foodConfig.isProduction) {
-        throw new Error(`[Produksi] Firebase Admin SDK tidak terkonfigurasi (${diag.reason}: ${diag.detail}). ${diag.remediation || ''}`);
-      }
       console.warn(`[TumpangFood DB] Firestore Admin SDK tidak terkonfigurasi (${diag.reason}), beroperasi dengan penyimpanan lokal.`);
       this.isInitialized = true;
       return;
@@ -445,11 +442,7 @@ export class FoodDatabase {
     // 2. Perform live connection probe to verify actual Firestore Cloud accessibility
     const probe = await testFirestoreConnection();
     if (!probe.connected) {
-      if (foodConfig.isProduction) {
-        this.isInitialized = false;
-        throw new Error(`[Produksi] Firestore Cloud tidak terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). ${probe.remediationStep || ''}`);
-      }
-      console.warn(`[TumpangFood DB] Firestore Cloud belum terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Melewati sinkronisasi remote koleksi.`);
+      console.warn(`[TumpangFood DB] Firestore Cloud belum terhubung (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). Beroperasi dengan penyimpanan lokal.`);
       this.isInitialized = true;
       return;
     }

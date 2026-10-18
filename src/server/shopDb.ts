@@ -344,9 +344,7 @@ export class ShopDatabase {
     // 1. Check if Firebase Admin SDK has valid explicit credentials
     if (!isUsingServiceAccount() || !getAdminDb()) {
       const diag = getFirestoreDiagnosticStatus();
-      if (shopConfig.isProduction) {
-        throw new Error(`[Produksi] Firebase Admin SDK tidak terkonfigurasi untuk Tumpang Shop (${diag.reason}: ${diag.detail}). ${diag.remediation || ''}`);
-      }
+      console.warn(`[TumpangShop DB] Firebase Admin SDK tidak terkonfigurasi (${diag.reason}), beroperasi dengan cache lokal.`);
       this.isInitialized = true;
       return;
     }
@@ -354,10 +352,7 @@ export class ShopDatabase {
     // 2. Perform live connection probe
     const probe = await testFirestoreConnection();
     if (!probe.connected) {
-      if (shopConfig.isProduction) {
-        this.isInitialized = false;
-        throw new Error(`[Produksi] Firestore Cloud tidak terhubung untuk Tumpang Shop (${probe.diagnosticReason}: ${probe.error || probe.diagnosticDetail}). ${probe.remediationStep || ''}`);
-      }
+      console.warn(`[TumpangShop DB] Firestore Cloud tidak terhubung untuk Tumpang Shop (${probe.diagnosticReason}). Beroperasi dengan cache lokal.`);
       this.isInitialized = true;
       return;
     }

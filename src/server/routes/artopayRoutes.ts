@@ -245,7 +245,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         artopayClientSecret: intent.clientSecret,
         artopayCustomerToken: intent.customerToken,
         artopayPublicKey: intent.publicKey,
-        artopayOrderId: intent.orderId
+        artopayOrderId: intent.orderId,
+        artopaySandbox: intent.sandbox
       });
 
       return res.status(200).json(intent);
