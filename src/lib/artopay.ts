@@ -677,6 +677,20 @@ export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams)
   // Mode 2: Official ArtoPay SDK Modal mechanism
   if (typeof window !== 'undefined') {
     try {
+      // Safe diagnostic logging (No full tokens/secrets leaked)
+      console.log('[ArtoPay Modal Diagnostics]', {
+        environment: data.sandbox ? 'sandbox' : 'production',
+        orderId: data.orderId || cleanOrderId,
+        paymentIntentId,
+        hasClientSecret: Boolean(data.clientSecret),
+        clientSecretPrefix: data.clientSecret ? `${data.clientSecret.substring(0, 7)}...` : 'missing',
+        hasCustomerToken: Boolean(data.customerToken),
+        customerTokenPrefix: data.customerToken ? `${data.customerToken.substring(0, 7)}...` : 'missing',
+        hasPublicKey: Boolean(data.publicKey),
+        publicKeyPrefix: data.publicKey ? `${data.publicKey.substring(0, 6)}...` : 'missing',
+        sdkParameters: ['clientSecret', 'secret', 'paymentId', 'orderId', 'token', 'customerToken', 'publicKey', 'sandbox']
+      });
+
       const sdk = await import('@arto-pay/js-sdk');
       const openModal = sdk.openPayment || (sdk.default && sdk.default.openPayment);
       if (typeof openModal === 'function') {
@@ -684,8 +698,9 @@ export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams)
           clientSecret: data.clientSecret,
           secret: data.clientSecret,
           paymentId: paymentIntentId,
-          orderId: cleanOrderId,
+          orderId: data.orderId || cleanOrderId,
           token: data.customerToken,
+          customerToken: data.customerToken,
           sandbox: data.sandbox !== undefined ? data.sandbox : true,
           publicKey: data.publicKey,
           onSuccess,

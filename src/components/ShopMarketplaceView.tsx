@@ -14,7 +14,7 @@ import {
 } from '../types/shop';
 import BannerCarousel from './BannerCarousel';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
-import { openPayment } from '@arto-pay/js-sdk';
+import { openPayment, configure } from '@arto-pay/js-sdk';
 import { 
   Search, ShoppingBag, Plus, Minus, Trash2, X, ArrowLeft, 
   AlertCircle, RefreshCw, Check, Package, Tag, Info, Layers, 
@@ -113,6 +113,22 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
   // Fetch shop data on mount
   useEffect(() => {
     fetchShopData();
+
+    // Load ArtoPay public gateway configuration on mount
+    fetch('/api/artopay/config')
+      .then(async res => {
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (cfg.publicKey) {
+          (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
+          (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
+        }
+        (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
+        if (typeof configure === 'function') {
+          configure({ sandbox: cfg.sandbox });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   // Auto-listen to payment completion messages and auto-poll status for Shop
@@ -530,7 +546,7 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
   };
 
   // Open official ArtoPay SDK Modal for Shop
-  const handleOpenArtopayShopSdk = (targetOrder?: ShopOrder, paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean) => {
+  const handleOpenArtopayShopSdk = (targetOrder?: ShopOrder, paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean, orderId?: string) => {
     const orderToPay = targetOrder || activeOrder || trackedOrder;
     if (!orderToPay) return;
     const targetPaymentId = paymentId || orderToPay.artopayPaymentId;
@@ -542,8 +558,9 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
     const targetClientSecret = clientSecret || orderToPay.artopayClientSecret;
     const targetToken = token || orderToPay.artopayCustomerToken;
     const targetPublicKey = publicKey || orderToPay.artopayPublicKey || (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || (import.meta as any).env?.VITE_ARTOPAY_PUBLIC_KEY || undefined;
-    const isSandbox = sandbox !== undefined ? sandbox : true;
-    const resolvedOrderId = orderToPay.orderNumber || orderToPay.id;
+    const isSandbox = sandbox !== undefined ? sandbox : ((window as any).__ARTOPAY_SANDBOX__ !== undefined ? (window as any).__ARTOPAY_SANDBOX__ : true);
+    // Align with the exact orderId returned by the backend for this Payment Intent
+    const resolvedOrderId = orderId || orderToPay.artopayOrderId || orderToPay.id || orderToPay.orderNumber;
 
     if (!targetClientSecret) {
       setArtopayStatusMsg({ type: 'error', text: 'Client secret transaksi ArtoPay tidak ditemukan. Silakan buat sesi pembayaran ulang.' });
@@ -555,6 +572,20 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
       return;
     }
 
+    // Safe diagnostic logging (No full secret/token exposed)
+    console.log('[ArtoPay Modal Diagnostics - ShopMarketplace]', {
+      environment: isSandbox ? 'sandbox' : 'production',
+      orderId: resolvedOrderId,
+      paymentIntentId: targetPaymentId,
+      hasClientSecret: Boolean(targetClientSecret),
+      clientSecretPrefix: targetClientSecret ? `${targetClientSecret.substring(0, 7)}...` : 'missing',
+      hasCustomerToken: Boolean(targetToken),
+      customerTokenPrefix: targetToken ? `${targetToken.substring(0, 7)}...` : 'missing',
+      hasPublicKey: Boolean(targetPublicKey),
+      publicKeyPrefix: targetPublicKey ? `${targetPublicKey.substring(0, 6)}...` : 'missing',
+      sdkParameters: ['clientSecret', 'secret', 'paymentId', 'orderId', 'token', 'customerToken', 'publicKey', 'sandbox']
+    });
+
     try {
       setArtopayStatusMsg({ type: 'info', text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...' });
       openPayment({
@@ -563,6 +594,7 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         paymentId: targetPaymentId,
         orderId: resolvedOrderId,
         token: targetToken,
+        customerToken: targetToken,
         sandbox: isSandbox,
         publicKey: targetPublicKey,
         onSuccess: async () => {
@@ -623,12 +655,18 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay.');
       }
 
+      // Cross-validate that response belongs to this exact order
+      if (data.orderId && data.orderId !== targetOrderId && data.orderId !== orderToPay.id && data.orderId !== orderToPay.orderNumber) {
+        throw new Error(`Inkonsistensi respons transaksi: order ID gateway (${data.orderId}) tidak cocok dengan pesanan belanja aktif (${targetOrderId}).`);
+      }
+
       const updatedOrderData: Partial<ShopOrder> = {
         artopayPaymentId: data.paymentIntentId,
         artopayCheckoutUrl: data.checkoutUrl,
         artopayClientSecret: data.clientSecret,
         artopayCustomerToken: data.customerToken,
         artopayPublicKey: data.publicKey,
+        artopayOrderId: data.orderId || targetOrderId,
         artopayStatus: 'PENDING',
         paymentMethod: 'ARTOPAY_QRIS',
         artopayExpiredAt: data.expiresAt
@@ -665,7 +703,8 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         data.clientSecret,
         data.customerToken,
         data.publicKey,
-        data.sandbox
+        data.sandbox,
+        data.orderId || targetOrderId
       );
     } catch (err: any) {
       clearTimeout(timeoutTimer);

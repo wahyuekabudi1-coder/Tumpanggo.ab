@@ -21,7 +21,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { app } from './src/server/app';
 import { foodDb } from './src/server/db';
-import { foodConfig } from './src/server/config';
+import { foodConfig, artopayConfig } from './src/server/config';
 
 export { app };
 
@@ -57,6 +57,21 @@ async function startServer() {
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
         template = await vite.transformIndexHtml(url, template);
+        const pubKey = artopayConfig.publicKey || '';
+        const isSandbox = artopayConfig.environment !== 'production';
+        const clientConfigScript = 
+          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
+          `    <script>\n` +
+          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
+          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
+          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
+          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
+          `    </script>`;
+
+        template = template.replace(
+          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
+          clientConfigScript
+        );
         res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
       } catch (e: any) {
         vite.ssrFixStacktrace(e);
@@ -71,7 +86,28 @@ async function startServer() {
         res.status(404).json({ error: 'Endpoint API tidak ditemukan' });
         return;
       }
-      res.sendFile(path.join(distPath, 'index.html'));
+      try {
+        const prodIndexPath = path.join(distPath, 'index.html');
+        let template = fs.readFileSync(prodIndexPath, 'utf-8');
+        const pubKey = artopayConfig.publicKey || '';
+        const isSandbox = artopayConfig.environment !== 'production';
+        const clientConfigScript = 
+          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
+          `    <script>\n` +
+          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
+          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
+          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
+          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
+          `    </script>`;
+
+        template = template.replace(
+          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
+          clientConfigScript
+        );
+        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
+      } catch {
+        res.sendFile(path.join(distPath, 'index.html'));
+      }
     });
   }
 

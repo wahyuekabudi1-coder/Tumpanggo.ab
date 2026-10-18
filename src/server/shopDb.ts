@@ -1201,6 +1201,7 @@ export class ShopDatabase {
       artopayClientSecret?: string;
       artopayCustomerToken?: string;
       artopayPublicKey?: string;
+      artopayOrderId?: string;
     }
   ): Promise<ShopOrder> {
     const index = this.data.orders.findIndex(o => o.id === orderId || o.orderNumber === orderId);

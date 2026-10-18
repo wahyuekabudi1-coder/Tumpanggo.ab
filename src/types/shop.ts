@@ -115,6 +115,8 @@ export interface ShopOrder {
   artopayClientSecret?: string;
   artopayCustomerToken?: string;
   artopayPublicKey?: string;
+  artopayOrderId?: string;
+  artopaySandbox?: boolean;
   shipment?: ShopShipment;
   createdAt: string;
   updatedAt: string;

@@ -10,7 +10,7 @@ import ErrorBoundary from './ErrorBoundary.tsx';
 import { compressImage, compressBase64 } from '../utils/imageCompressor.ts';
 import { safeStorage } from '../utils/safeStorage.ts';
 import { apiFetch as fetch, extractArrayResponse } from '../utils/apiClient.ts';
-import { openPayment } from '@arto-pay/js-sdk';
+import { openPayment, configure } from '@arto-pay/js-sdk';
 import { 
   Search, ShoppingBag, Store, MapPin, Clock, Star, ArrowLeft, Plus, Minus, Trash2, 
   CheckCircle2, ArrowRight, Share2, Phone, Calendar, ClipboardList, RefreshCw, X,
@@ -47,6 +47,24 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  // Load ArtoPay public gateway configuration on mount
+  useEffect(() => {
+    fetch('/api/artopay/config')
+      .then(async res => {
+        if (!res.ok) return;
+        const cfg = await res.json();
+        if (cfg.publicKey) {
+          (window as any).__ARTOPAY_PUBLIC_KEY__ = cfg.publicKey;
+          (window as any).VITE_ARTOPAY_PUBLIC_KEY = cfg.publicKey;
+        }
+        (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
+        if (typeof configure === 'function') {
+          configure({ sandbox: cfg.sandbox });
+        }
+      })
+      .catch(() => {});
+  }, []);
   
   // Home layout sub-view: 'main' (GoFood/ShopeeFood style landing) | 'food' (existing food view) | 'taxi' (Taksi Lokal view) | 'shop' (Tumpang Shop view) | 'pay' (Tumpang Pay view) | 'bike' (Tumpang Bike coming soon)
   const [homeSubView, setHomeSubView] = useState<'main' | 'food' | 'taxi' | 'shop' | 'pay' | 'bike'>('main');
@@ -1221,7 +1239,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
   };
 
   // Open official ArtoPay SDK Modal
-  const handleOpenArtopaySdk = (paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean) => {
+  const handleOpenArtopaySdk = (paymentId?: string, clientSecret?: string, token?: string, publicKey?: string, sandbox?: boolean, orderId?: string) => {
     if (!activeOrder) return;
     const targetPaymentId = paymentId || activeOrder.artopayPaymentId;
     if (!targetPaymentId) {
@@ -1232,7 +1250,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
     const targetClientSecret = clientSecret || activeOrder.artopayClientSecret;
     const targetToken = token || activeOrder.artopayCustomerToken;
     const targetPublicKey = publicKey || activeOrder.artopayPublicKey || (window as any).__ARTOPAY_PUBLIC_KEY__ || (window as any).VITE_ARTOPAY_PUBLIC_KEY || (import.meta as any).env?.VITE_ARTOPAY_PUBLIC_KEY || undefined;
-    const isSandbox = sandbox !== undefined ? sandbox : true;
+    const isSandbox = sandbox !== undefined ? sandbox : ((window as any).__ARTOPAY_SANDBOX__ !== undefined ? (window as any).__ARTOPAY_SANDBOX__ : true);
+    const targetOrderId = orderId || activeOrder.artopayOrderId || activeOrder.id;
 
     if (!targetClientSecret) {
       setArtopayStatusMsg({ type: 'error', text: 'Client secret transaksi ArtoPay tidak ditemukan. Silakan buat sesi pembayaran ulang.' });
@@ -1244,14 +1263,29 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       return;
     }
 
+    // Safe diagnostic logging (No full secret/token exposed)
+    console.log('[ArtoPay Modal Diagnostics - CustomerView]', {
+      environment: isSandbox ? 'sandbox' : 'production',
+      orderId: targetOrderId,
+      paymentIntentId: targetPaymentId,
+      hasClientSecret: Boolean(targetClientSecret),
+      clientSecretPrefix: targetClientSecret ? `${targetClientSecret.substring(0, 7)}...` : 'missing',
+      hasCustomerToken: Boolean(targetToken),
+      customerTokenPrefix: targetToken ? `${targetToken.substring(0, 7)}...` : 'missing',
+      hasPublicKey: Boolean(targetPublicKey),
+      publicKeyPrefix: targetPublicKey ? `${targetPublicKey.substring(0, 6)}...` : 'missing',
+      sdkParameters: ['clientSecret', 'secret', 'paymentId', 'orderId', 'token', 'customerToken', 'publicKey', 'sandbox']
+    });
+
     try {
       setArtopayStatusMsg({ type: 'info', text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...' });
       openPayment({
         clientSecret: targetClientSecret,
         secret: targetClientSecret,
         paymentId: targetPaymentId,
-        orderId: activeOrder.id,
+        orderId: targetOrderId,
         token: targetToken,
+        customerToken: targetToken,
         sandbox: isSandbox,
         publicKey: targetPublicKey,
         onSuccess: async () => {
@@ -1306,6 +1340,11 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay.');
       }
 
+      // Cross-validate that response belongs to this exact order
+      if (data.orderId && data.orderId !== activeOrder.id.trim()) {
+        throw new Error(`Inkonsistensi respons transaksi: order ID gateway (${data.orderId}) tidak cocok dengan pesanan aktif (${activeOrder.id}).`);
+      }
+
       const checkoutUrl = String(data.checkoutUrl || '').trim();
       const paymentIntentId = data.paymentIntentId || data.id;
 
@@ -1316,6 +1355,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         artopayClientSecret: data.clientSecret,
         artopayCustomerToken: data.customerToken,
         artopayPublicKey: data.publicKey,
+        artopayOrderId: data.orderId || activeOrder.id,
         artopayStatus: 'PENDING',
         paymentMethod: 'ARTOPAY_QRIS',
         artopayExpiredAt: data.expiresAt
@@ -1342,7 +1382,8 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         data.clientSecret,
         data.customerToken,
         data.publicKey,
-        data.sandbox
+        data.sandbox,
+        data.orderId || activeOrder.id
       );
     } catch (err: any) {
       clearTimeout(timeoutTimer);

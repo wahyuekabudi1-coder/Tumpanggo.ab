@@ -133,6 +133,8 @@ export interface Order {
   artopayClientSecret?: string;
   artopayCustomerToken?: string;
   artopayPublicKey?: string;
+  artopayOrderId?: string;
+  artopaySandbox?: boolean;
   paymentVerifiedAt?: string;
 }
 

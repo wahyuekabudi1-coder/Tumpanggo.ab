@@ -36,6 +36,20 @@ artopayRouter.get('/config-status', (_req: Request, res: Response) => {
   if (!hasPublicKey) missing.push('ARTOPAY_PUBLIC_KEY');
   if (!hasWebhookSecret) missing.push('ARTOPAY_WEBHOOK_SECRET');
 
+  const secretPrefix = artopayConfig.secretKey ? `${artopayConfig.secretKey.substring(0, 7)}...` : undefined;
+  const publicPrefix = artopayConfig.publicKey ? `${artopayConfig.publicKey.substring(0, 7)}...` : undefined;
+
+  let keyEnvironmentConsistency: 'CONSISTENT' | 'MISMATCH_TEST_IN_PROD' | 'MISMATCH_PROD_IN_SANDBOX' | 'UNKNOWN' = 'CONSISTENT';
+  if (artopayConfig.environment === 'sandbox') {
+    if ((artopayConfig.secretKey && artopayConfig.secretKey.startsWith('sk_live_')) || (artopayConfig.publicKey && artopayConfig.publicKey.startsWith('pk_live_'))) {
+      keyEnvironmentConsistency = 'MISMATCH_PROD_IN_SANDBOX';
+    }
+  } else {
+    if ((artopayConfig.secretKey && artopayConfig.secretKey.startsWith('sk_test_')) || (artopayConfig.publicKey && artopayConfig.publicKey.startsWith('pk_test_'))) {
+      keyEnvironmentConsistency = 'MISMATCH_TEST_IN_PROD';
+    }
+  }
+
   return res.json({
     gatewayConfigured: hasSecretKey && hasPublicKey,
     environment: artopayConfig.environment,
@@ -43,11 +57,19 @@ artopayRouter.get('/config-status', (_req: Request, res: Response) => {
     hasSecretKey,
     hasPublicKey,
     hasWebhookSecret,
+    secretKeyPrefix: secretPrefix,
+    publicKeyPrefix: publicPrefix,
+    keyEnvironmentConsistency,
     missingCredentials: missing,
     status: hasSecretKey && hasPublicKey ? 'READY' : 'PREPARATION_PENDING_CREDENTIALS',
     message: hasSecretKey && hasPublicKey
       ? 'Gateway ArtoPay telah terkonfigurasi dan siap memproses transaksi.'
-      : 'Tahap persiapan: Kredensial ArtoPay belum diisi di Environment Variables. Alur aplikasi, validasi server, dan database telah siap.'
+      : 'Tahap persiapan: Kredensial ArtoPay belum diisi di Environment Variables. Alur aplikasi, validasi server, dan database telah siap.',
+    oapiChecklist: {
+      environmentMatchesMerchantAccount: keyEnvironmentConsistency === 'CONSISTENT',
+      merchantStatusMustBeActive: true,
+      allowedOriginConfiguredInGateway: true
+    }
   });
 });
 
@@ -148,7 +170,9 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         artopayExpiredAt: intent.expiresAt,
         artopayClientSecret: intent.clientSecret,
         artopayCustomerToken: intent.customerToken,
-        artopayPublicKey: intent.publicKey
+        artopayPublicKey: intent.publicKey,
+        artopayOrderId: intent.orderId,
+        artopaySandbox: intent.sandbox
       }, 'SYSTEM');
 
       return res.status(200).json(intent);
@@ -220,7 +244,8 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         artopayExpiredAt: intent.expiresAt,
         artopayClientSecret: intent.clientSecret,
         artopayCustomerToken: intent.customerToken,
-        artopayPublicKey: intent.publicKey
+        artopayPublicKey: intent.publicKey,
+        artopayOrderId: intent.orderId
       });
 
       return res.status(200).json(intent);
