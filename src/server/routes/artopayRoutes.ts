@@ -224,14 +224,14 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
  */
 artopayRouter.post('/webhook', async (req: Request, res: Response) => {
   try {
-    const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     const signature = (
       req.headers['x-artopay-signature'] || 
       req.headers['x-signature'] || 
       req.headers['artopay-signature']
     ) as string | undefined;
 
-    // 1. Signature Verification
+    // 1. Signature Verification using exact raw body
     const sigCheck = ArtoPayService.verifyWebhookSignature(rawBody, signature);
     if (!sigCheck.isValid) {
       console.warn(`[ArtoPay Webhook Unauthorized] Invalid signature: ${sigCheck.reason}`);
@@ -253,7 +253,7 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Format payload webhook tidak lengkap: paymentIntentId atau orderId hilang.' });
     }
 
-    // 2. Idempotency Check
+    // 2. In-Memory Idempotency Check
     const idempotencyKey = `${paymentIntentId}_${rawStatus}`;
     if (processedWebhookKeys.has(idempotencyKey)) {
       return res.status(200).json({
@@ -270,7 +270,7 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
     if (!foodOrder) {
       shopOrder = await shopDb.findOrderById(orderId);
       if (!shopOrder && orderId) {
-        shopOrder = shopDb.getOrders().find(o => o.orderNumber === orderId || o.artopayPaymentId === paymentIntentId);
+        shopOrder = shopDb.getOrders().find(o => o.orderNumber === orderId);
       }
     }
 
@@ -292,7 +292,16 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
     const targetOrder = isFood ? foodOrder! : shopOrder!;
     const serverTotal = Math.round(Number(targetOrder.total));
 
-    // 4. Strict Financial Cross-Verification
+    // 4. Strict Matching of Stored Transaction Identity
+    // Prevent updating an order if its recorded paymentIntentId does not match the webhook
+    if (targetOrder.artopayPaymentId && targetOrder.artopayPaymentId !== paymentIntentId) {
+      console.warn(`[ArtoPay Security Alert] Mismatch between recorded transaction ID (${targetOrder.artopayPaymentId}) and webhook transaction ID (${paymentIntentId}) for order ${orderId}`);
+      return res.status(400).json({ 
+        error: 'ID transaksi ArtoPay tidak cocok dengan identitas transaksi yang tersimpan pada pesanan ini.' 
+      });
+    }
+
+    // 5. Strict Financial Cross-Verification
     if (Number.isNaN(amount) || amount !== serverTotal) {
       console.error(`[ArtoPay Security Alert] Nominal mismatch on order ${orderId}! Expected Rp ${serverTotal}, received Rp ${amount}`);
       return res.status(400).json({ 
@@ -304,13 +313,31 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       return res.status(400).json({ error: `Mata uang tidak valid (${currency}). Harus IDR.` });
     }
 
-    // 5. Status Transitioning
-    const isPaid = ['PAID', 'SUCCESS', 'SETTLED'].includes(rawStatus);
-    const isFailedOrExpired = ['EXPIRED', 'FAILED', 'CANCELLED', 'REJECTED'].includes(rawStatus);
+    // 6. Persistent Idempotency Check (handles server restart & multi-instance concurrency)
+    const isPaid = ['PAID', 'SUCCESS', 'SETTLED', 'CAPTURE', 'SETTLEMENT'].includes(rawStatus);
+    const isFailedOrExpired = ['EXPIRED', 'FAILED', 'CANCELLED', 'REJECTED', 'DENY', 'CANCEL'].includes(rawStatus);
 
     if (isFood) {
+      const alreadyPaid = (
+        targetOrder.status === OrderStatus.PAYMENT_VERIFIED ||
+        targetOrder.status === OrderStatus.COOKING ||
+        targetOrder.status === OrderStatus.READY_FOR_PICKUP ||
+        targetOrder.status === OrderStatus.ORDER_PICKED_UP ||
+        targetOrder.status === OrderStatus.DELIVERED ||
+        targetOrder.status === OrderStatus.COMPLETED
+      );
+
+      if (isPaid && alreadyPaid) {
+        processedWebhookKeys.add(idempotencyKey);
+        return res.status(200).json({
+          received: true,
+          idempotent: true,
+          message: 'Pesanan makanan ini sudah berstatus lunas / terverifikasi sebelumnya.'
+        });
+      }
+
       if (isPaid) {
-        // Only advance if currently waiting for payment
+        // Advance only if waiting for payment
         if (
           targetOrder.status === OrderStatus.WAITING_PAYMENT || 
           targetOrder.status === OrderStatus.WAITING_PAYMENT_VERIFICATION
@@ -318,9 +345,17 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
           await foodDb.updateOrder('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, {
             status: OrderStatus.PAYMENT_VERIFIED,
             paymentMethod: 'ARTOPAY_QRIS',
+            artopayPaymentId: paymentIntentId,
             artopayStatus: 'SUCCESS',
             paymentVerifiedAt: data.paidAt || new Date().toISOString()
           }, 'SYSTEM');
+
+          foodDb.addAuditLog({
+            action: 'ARTOPAY_WEBHOOK_PAID',
+            orderId: targetOrder.id,
+            details: `Pembayaran ArtoPay terverifikasi via webhook (ID: ${paymentIntentId}, Rp ${amount})`,
+            performedBy: 'SYSTEM_ARTOPAY_WEBHOOK'
+          });
           console.log(`[ArtoPay Webhook] Food Order ${targetOrder.id} successfully marked as PAID.`);
         }
       } else if (isFailedOrExpired) {
@@ -332,6 +367,15 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       }
     } else {
       // SHOP
+      if (isPaid && targetOrder.paymentStatus === ShopPaymentStatus.PAID) {
+        processedWebhookKeys.add(idempotencyKey);
+        return res.status(200).json({
+          received: true,
+          idempotent: true,
+          message: 'Pesanan belanja ini sudah berstatus lunas sebelumnya.'
+        });
+      }
+
       if (isPaid) {
         if (targetOrder.paymentStatus !== ShopPaymentStatus.PAID) {
           await shopDb.verifyPayment('SYSTEM_ARTOPAY_WEBHOOK', targetOrder.id, true);
@@ -342,6 +386,11 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
             artopayStatus: 'SUCCESS',
             artopayExpiredAt: targetOrder.artopayExpiredAt
           });
+          shopDb.logAudit(
+            'ARTOPAY_WEBHOOK_PAID',
+            `Pembayaran pesanan belanja ${targetOrder.orderNumber} terverifikasi via ArtoPay (ID: ${paymentIntentId}, Rp ${amount})`,
+            'SYSTEM_ARTOPAY_WEBHOOK'
+          );
           console.log(`[ArtoPay Webhook] Shop Order ${targetOrder.orderNumber} successfully marked as PAID.`);
         }
       } else if (isFailedOrExpired) {
@@ -357,7 +406,7 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // 6. Record idempotency key
+    // 7. Record idempotency key
     processedWebhookKeys.add(idempotencyKey);
 
     return res.status(200).json({

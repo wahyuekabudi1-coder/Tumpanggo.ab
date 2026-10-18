@@ -41,6 +41,23 @@ if (!runtimeAdminPassword && process.env.NODE_ENV !== 'production') {
 }
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || (process.env.NODE_ENV === 'production' ? '' : 'tumpanggo@gmail.com')).trim().toLowerCase();
 
+function resolveServerPort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = parseInt(process.argv[portArgIndex + 1], 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.FOOD_PORT) {
+    const parsed = parseInt(process.env.FOOD_PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    const parsed = parseInt(process.env.PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 3000;
+}
+
 // Production Strict Verification
 export function validateProductionEnvironment(): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
@@ -130,7 +147,7 @@ export function validateProductionEnvironment(): { isValid: boolean; errors: str
     errors.push('SHOP_ADMIN_PASSWORD tidak boleh menggunakan kata sandi default/contoh ("TumpangShopAdmin#2026") pada mode produksi.');
   }
 
-  const portVal = parseInt(process.env.PORT || process.env.FOOD_PORT || '3000', 10);
+  const portVal = resolveServerPort();
   if (isNaN(portVal) || portVal < 1 || portVal > 65535) {
     errors.push('PORT atau FOOD_PORT harus berupa angka port TCP yang valid (1-65535).');
   }
@@ -151,7 +168,7 @@ if (process.env.NODE_ENV === 'production') {
 export const foodConfig = {
   isProduction: process.env.NODE_ENV === 'production',
   // Server port
-  port: parseInt(process.env.PORT || process.env.FOOD_PORT || '3000', 10),
+  port: resolveServerPort(),
   host: '0.0.0.0',
   isServerless,
 
@@ -252,7 +269,7 @@ export const artopayConfig = {
     return process.env.NODE_ENV === 'production';
   },
   get environment(): 'sandbox' | 'production' {
-    const env = (process.env.ARTOPAY_ENVIRONMENT || 'sandbox').toLowerCase().trim();
+    const env = (process.env.ARTOPAY_ENVIRONMENT || process.env.ARTOPAY_ENV || 'sandbox').toLowerCase().trim();
     return env === 'production' ? 'production' : 'sandbox';
   },
   get apiKey(): string {
@@ -267,11 +284,14 @@ export const artopayConfig = {
   get webhookSecret(): string {
     return (process.env.ARTOPAY_WEBHOOK_SECRET || '').trim();
   },
+  get businessUnitCode(): string {
+    return (process.env.ARTOPAY_BUSINESS_UNIT_CODE || process.env.ARTOPAY_BUSINESS_UNIT || '').trim();
+  },
   get baseUrl(): string {
     const defaultApiUrl = this.environment === 'production'
       ? 'https://api.arto-pay.com'
       : 'https://api-sandbox.arto-pay.com';
-    return (process.env.ARTOPAY_BASE_URL || defaultApiUrl).trim();
+    return (process.env.ARTOPAY_API_BASE_URL || process.env.ARTOPAY_BASE_URL || defaultApiUrl).trim();
   },
   get payBaseUrl(): string {
     const defaultPayUrl = this.environment === 'production'

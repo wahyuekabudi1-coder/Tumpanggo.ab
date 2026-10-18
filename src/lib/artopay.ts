@@ -116,7 +116,7 @@ export class ArtoPayService {
 
     // 3. Official ArtoPay Gateway call
     // ArtoPay API contract requires top-level orderId in request body
-    const payload = {
+    const payload: Record<string, any> = {
       orderId: cleanOrderId,
       amount: String(amount),
       currency: 'IDR',
@@ -136,10 +136,22 @@ export class ArtoPayService {
       }
     };
 
-    const headers = {
+    if (artopayConfig.businessUnitCode) {
+      payload.businessUnit = artopayConfig.businessUnitCode;
+      payload.businessUnitCode = artopayConfig.businessUnitCode;
+    }
+
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       'X-Secret-Key': artopayConfig.secretKey
     };
+
+    if (artopayConfig.apiKey) {
+      headers['X-API-Key'] = artopayConfig.apiKey;
+    }
+    if (artopayConfig.businessUnitCode) {
+      headers['X-Business-Unit'] = artopayConfig.businessUnitCode;
+    }
 
     let response: any = null;
     try {
@@ -174,8 +186,24 @@ export class ArtoPayService {
       throw new Error('Gateway ArtoPay merespons berhasil namun tidak mengembalikan ID transaksi yang valid.');
     }
 
-    // Official ArtoPay SDK / Gateway checkout URL
-    const returnedUrl = d.checkoutUrl || d.paymentUrl || `${artopayConfig.environment === 'production' ? 'https://pay.arto-pay.com/arto-pay' : 'https://pay-sandbox.arto-pay.com/arto-pay'}/${returnedId}`;
+    // Official ArtoPay hosted payment link URL from gateway response
+    const returnedUrl = String(
+      d.checkoutUrl || 
+      d.paymentUrl || 
+      d.paymentLink || 
+      d.checkout_url || 
+      d.payment_url || 
+      d.url || 
+      ''
+    ).trim();
+
+    // Strict validation: Do not construct fake fallback URLs from transaction ID
+    if (!returnedUrl || !returnedUrl.startsWith('http')) {
+      throw new Error(
+        'Gateway ArtoPay merespons berhasil namun tidak mengembalikan URL checkout resmi (checkoutUrl/paymentUrl) yang valid. ' +
+        'Pembuatan payment link tidak dapat diselesaikan.'
+      );
+    }
 
     return {
       success: true,
@@ -310,3 +338,69 @@ export class ArtoPayService {
     return { status: 'PENDING' };
   }
 }
+
+export interface ProcessArtoPayPaymentParams {
+  orderId: string;
+  serviceType: 'FOOD' | 'SHOP';
+  customerPhone?: string;
+  autoRedirect?: boolean;
+}
+
+export interface ProcessArtoPayPaymentResult {
+  success: boolean;
+  orderId: string;
+  paymentIntentId: string;
+  checkoutUrl: string;
+  amount: number;
+  currency: string;
+  expiresAt: string;
+}
+
+/**
+ * Frontend client helper following Smart Journey reference pattern:
+ * 1. Sends payment creation request to backend.
+ * 2. Backend retrieves verified saved order, enforces nominal, and contacts ArtoPay gateway.
+ * 3. Redirects customer directly to official ArtoPay hosted payment link URL.
+ */
+export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams): Promise<ProcessArtoPayPaymentResult> {
+  const { orderId, serviceType, customerPhone, autoRedirect = true } = params;
+  const cleanOrderId = typeof orderId === 'string' ? orderId.trim() : '';
+  if (!cleanOrderId) {
+    throw new Error('ID pesanan tidak boleh kosong.');
+  }
+
+  const res = await fetch('/api/artopay/payment-intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      orderId: cleanOrderId,
+      serviceType,
+      customerPhone: customerPhone ? customerPhone.trim() : undefined
+    })
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || 'Gagal membuat sesi transaksi payment link ArtoPay melalui backend.');
+  }
+
+  const checkoutUrl = String(data.checkoutUrl || '').trim();
+  if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
+    throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
+  }
+
+  if (autoRedirect && typeof window !== 'undefined') {
+    window.location.href = checkoutUrl;
+  }
+
+  return {
+    success: true,
+    orderId: data.orderId || cleanOrderId,
+    paymentIntentId: data.paymentIntentId || data.id,
+    checkoutUrl,
+    amount: Number(data.amount),
+    currency: data.currency || 'IDR',
+    expiresAt: data.expiresAt
+  };
+}
+

@@ -23,7 +23,12 @@ import { artopayRouter } from './routes/artopayRoutes';
 export const app = express();
 
 // Global body parsers (limit 15mb for base64 image uploads)
-app.use(express.json({ limit: '15mb' }));
+app.use(express.json({
+  limit: '15mb',
+  verify: (req: any, _res, buf) => {
+    req.rawBody = buf.toString('utf-8');
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 // Lazy asynchronous database synchronization middleware for Serverless & Cold-Starts

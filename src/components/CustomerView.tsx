@@ -1296,8 +1296,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           orderId: activeOrder.id.trim(),
-          serviceType: 'FOOD',
-          amount: Math.round(Number(activeOrder.total))
+          serviceType: 'FOOD'
         }),
         signal: abortCtrl.signal
       });
@@ -1307,25 +1306,31 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
         throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay.');
       }
 
+      const checkoutUrl = String(data.checkoutUrl || '').trim();
+      if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
+        throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
+      }
+
       const updatedOrder: Order = {
         ...activeOrder,
         artopayPaymentId: data.paymentIntentId,
-        artopayCheckoutUrl: data.checkoutUrl,
+        artopayCheckoutUrl: checkoutUrl,
         artopayClientSecret: data.clientSecret,
         artopayCustomerToken: data.customerToken,
         artopayPublicKey: data.publicKey,
         artopayStatus: 'PENDING',
-        paymentMethod: 'ARTOPAY_QRIS'
+        paymentMethod: 'ARTOPAY_QRIS',
+        artopayExpiredAt: data.expiresAt
       };
       setActiveOrder(updatedOrder);
 
       setArtopayStatusMsg({
         type: 'success',
-        text: 'Sesi ArtoPay resmi aktif. Menampilkan modal pembayaran QRIS...'
+        text: 'Payment link ArtoPay resmi aktif. Mengalihkan ke halaman checkout resmi gateway...'
       });
 
-      // Launch official ArtoPay SDK modal with genuine credentials
-      handleOpenArtopaySdk(data.paymentIntentId, data.clientSecret, data.customerToken, data.publicKey, data.sandbox);
+      // Redirect customer directly to official ArtoPay hosted payment link
+      window.location.href = checkoutUrl;
     } catch (err: any) {
       clearTimeout(timeoutTimer);
       console.error('[ArtoPay Error]', err);
@@ -2083,17 +2088,27 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
                 {/* Actions */}
                 <div className="w-full flex flex-col gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowArtopayModal(false);
-                      handleOpenArtopaySdk();
-                    }}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <QrCode className="w-4 h-4" />
-                    <span>Buka Pembayaran QRIS ArtoPay (Modal SDK)</span>
-                  </button>
+                  {activeOrder?.artopayCheckoutUrl ? (
+                    <a
+                      href={activeOrder.artopayCheckoutUrl}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer text-center"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowArtopayModal(false);
+                        handleCreateArtoPayPayment();
+                      }}
+                      className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Bayar via ArtoPay (Payment Link)</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -4050,16 +4065,15 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
 
                 {/* Action Buttons */}
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm flex flex-col gap-2.5">
-                  {activeOrder.artopayPaymentId ? (
+                  {activeOrder.artopayCheckoutUrl ? (
                     <div className="flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenArtopaySdk()}
-                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                      <a
+                        href={activeOrder.artopayCheckoutUrl}
+                        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl shadow-md shadow-emerald-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer text-center"
                       >
-                        <QrCode className="w-4 h-4" />
-                        <span>Buka Pembayaran ArtoPay (QRIS)</span>
-                      </button>
+                        <ExternalLink className="w-4 h-4" />
+                        <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                      </a>
                     </div>
                   ) : (
                     <button
@@ -4071,12 +4085,12 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
                       {artopayLoading ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
-                          <span>Menyiapkan Sesi ArtoPay...</span>
+                          <span>Menyiapkan Payment Link ArtoPay...</span>
                         </>
                       ) : (
                         <>
                           <QrCode className="w-4 h-4" />
-                          <span>Bayar Sekarang via ArtoPay (QRIS Dinamis)</span>
+                          <span>Bayar Sekarang via ArtoPay (Payment Link)</span>
                         </>
                       )}
                     </button>
