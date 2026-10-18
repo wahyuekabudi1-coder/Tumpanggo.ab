@@ -119,6 +119,10 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         });
       }
 
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.get('host') || 'localhost:3000';
+      const origin = `${proto}://${host}`;
+
       // Create Payment Intent via ArtoPay
       const intent = await ArtoPayService.createPaymentIntent({
         orderId: verifiedOrderId,
@@ -129,7 +133,9 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         customerEmail: (order as any).customerEmail || undefined,
         serviceType: 'FOOD',
         description: `Pembayaran Tumpang Food #${verifiedOrderId} (${order.merchantName})`,
-        expiryMinutes: 15
+        expiryMinutes: 15,
+        callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
+        returnUrl: req.body.returnUrl || `${origin}/?tab=tracking&orderId=${verifiedOrderId}`
       });
 
       // Attach ArtoPay payment details to Food Order
@@ -184,6 +190,10 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         });
       }
 
+      const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+      const host = req.get('host') || 'localhost:3000';
+      const origin = `${proto}://${host}`;
+
       // Create Payment Intent via ArtoPay
       const intent = await ArtoPayService.createPaymentIntent({
         orderId: verifiedOrderId,
@@ -194,7 +204,9 @@ artopayRouter.post('/payment-intent', async (req: Request, res: Response) => {
         customerEmail: (order as any).customerEmail || undefined,
         serviceType: 'SHOP',
         description: `Pembayaran Tumpang Shop #${order.orderNumber || verifiedOrderId}`,
-        expiryMinutes: 20
+        expiryMinutes: 20,
+        callbackUrl: req.body.callbackUrl || `${origin}/api/artopay/webhook`,
+        returnUrl: req.body.returnUrl || `${origin}/?page=shop&orderId=${order.orderNumber || verifiedOrderId}&tab=tracking`
       });
 
       // Attach ArtoPay payment details to Shop Order
@@ -350,12 +362,11 @@ artopayRouter.post('/webhook', async (req: Request, res: Response) => {
             paymentVerifiedAt: data.paidAt || new Date().toISOString()
           }, 'SYSTEM');
 
-          foodDb.addAuditLog({
-            action: 'ARTOPAY_WEBHOOK_PAID',
-            orderId: targetOrder.id,
-            details: `Pembayaran ArtoPay terverifikasi via webhook (ID: ${paymentIntentId}, Rp ${amount})`,
-            performedBy: 'SYSTEM_ARTOPAY_WEBHOOK'
-          });
+          foodDb.log(
+            'SYSTEM_ARTOPAY_WEBHOOK',
+            `Pembayaran ArtoPay terverifikasi via webhook (ID: ${paymentIntentId}, Rp ${amount}) - Order ${targetOrder.id}`,
+            'SYSTEM'
+          );
           console.log(`[ArtoPay Webhook] Food Order ${targetOrder.id} successfully marked as PAID.`);
         }
       } else if (isFailedOrExpired) {

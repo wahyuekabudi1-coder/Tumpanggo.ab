@@ -641,20 +641,18 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         setTrackedOrder(prev => prev ? { ...prev, ...updatedOrderData } : null);
       }
 
+      const checkoutUrl = String(data.checkoutUrl || '').trim();
+      if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
+        throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
+      }
+
       setArtopayStatusMsg({
         type: 'success',
-        text: 'Sesi ArtoPay resmi aktif. Menampilkan modal pembayaran QRIS...'
+        text: 'Payment link ArtoPay resmi aktif. Mengalihkan ke halaman checkout resmi gateway...'
       });
 
-      // Launch official ArtoPay SDK modal
-      handleOpenArtopayShopSdk(
-        { ...orderToPay, ...updatedOrderData },
-        data.paymentIntentId,
-        data.clientSecret,
-        data.customerToken,
-        data.publicKey,
-        data.sandbox
-      );
+      // Redirect customer directly to official ArtoPay hosted payment link
+      window.location.href = checkoutUrl;
     } catch (err: any) {
       clearTimeout(timeoutTimer);
       console.error('[ArtoPay Shop Error]', err);
@@ -1434,16 +1432,16 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                     <ShieldCheck className="w-4 h-4 text-emerald-600" />
                     <span>Pembayaran pesanan belanja ini telah lunas terverifikasi.</span>
                   </div>
-                ) : activeOrder.artopayPaymentId ? (
+                ) : activeOrder.artopayCheckoutUrl ? (
                   <div className="flex flex-col gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenArtopayShopSdk(activeOrder)}
+                    <a
+                      href={activeOrder.artopayCheckoutUrl}
+                      target="_self"
                       className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
                     >
-                      <QrCode className="w-4 h-4" />
-                      <span>Buka Pembayaran ArtoPay (QRIS)</span>
-                    </button>
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                    </a>
                   </div>
                 ) : (
                   <button
@@ -1455,12 +1453,12 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                     {artopayLoading ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Menyiapkan Sesi ArtoPay...</span>
+                        <span>Menyiapkan Payment Link ArtoPay...</span>
                       </>
                     ) : (
                       <>
                         <QrCode className="w-4 h-4" />
-                        <span>Bayar Sekarang via ArtoPay (QRIS Dinamis)</span>
+                        <span>Bayar Sekarang via ArtoPay (Payment Link)</span>
                       </>
                     )}
                   </button>
@@ -2004,16 +2002,16 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                 )}
 
                 <div className="flex flex-col gap-2">
-                  {trackedOrder.artopayPaymentId ? (
+                  {trackedOrder.artopayCheckoutUrl ? (
                     <div className="flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenArtopayShopSdk(trackedOrder)}
+                      <a
+                        href={trackedOrder.artopayCheckoutUrl}
+                        target="_self"
                         className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-xs text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <QrCode className="w-3.5 h-3.5" />
-                        <span>Buka Pembayaran ArtoPay (QRIS)</span>
-                      </button>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                      </a>
                     </div>
                   ) : (
                     <button
@@ -2025,12 +2023,12 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
                       {artopayLoading ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Menyiapkan Sesi ArtoPay...</span>
+                          <span>Menyiapkan Payment Link ArtoPay...</span>
                         </>
                       ) : (
                         <>
                           <QrCode className="w-3.5 h-3.5" />
-                          <span>Bayar via ArtoPay (QRIS Dinamis Otomatis)</span>
+                          <span>Bayar via ArtoPay (Payment Link)</span>
                         </>
                       )}
                     </button>
@@ -2739,17 +2737,28 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
 
                 {/* Actions */}
                 <div className="w-full flex flex-col gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowArtopayModal(false);
-                      handleOpenArtopayShopSdk(modalOrder);
-                    }}
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
-                  >
-                    <QrCode className="w-4 h-4" />
-                    <span>Buka Pembayaran QRIS ArtoPay (Modal SDK)</span>
-                  </button>
+                  {modalOrder.artopayCheckoutUrl ? (
+                    <a
+                      href={modalOrder.artopayCheckoutUrl}
+                      target="_self"
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Buka Halaman Pembayaran ArtoPay (Payment Link)</span>
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowArtopayModal(false);
+                        handleCreateArtoPayShopPayment(modalOrder);
+                      }}
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-extrabold rounded-xl shadow-md shadow-blue-600/20 text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <QrCode className="w-4 h-4" />
+                      <span>Buat Payment Link ArtoPay</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"

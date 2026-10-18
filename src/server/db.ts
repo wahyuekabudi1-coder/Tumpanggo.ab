@@ -614,6 +614,13 @@ export class FoodDatabase {
     return logItem;
   }
 
+  public addAuditLog(entry: { action?: string; orderId?: string; details: string; performedBy?: string; userId?: string; role?: 'ADMIN' | 'MERCHANT' | 'DRIVER' | 'SYSTEM' | 'CUSTOMER' | 'SHOP_ADMIN' }): AuditLog {
+    const userId = entry.performedBy || entry.userId || 'SYSTEM';
+    const details = entry.details || (entry.action ? `${entry.action}: ${entry.orderId || ''}` : 'Audit log');
+    const role = entry.role || 'SYSTEM';
+    return this.log(userId, details, role);
+  }
+
   public getLogs(): AuditLog[] {
     return this.data.auditLogs;
   }

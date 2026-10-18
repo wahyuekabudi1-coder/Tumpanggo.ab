@@ -15,20 +15,20 @@ targetFiles.forEach(file => {
 
     // 1. Ensure dynamic public key fallback lookup
     code = code.replace(
-      /null===\(S=document\.currentScript\)\|\|void 0===S\?void 0:S\.getAttribute\("data-client-key"\)/g,
+      /null===\([A-Za-z0-9_$]+=document\.currentScript\)\|\|void 0===[A-Za-z0-9_$]+\?void 0:[A-Za-z0-9_$]+\.getAttribute\("data-client-key"\)/g,
       `typeof document !== "undefined" ? (document.currentScript?.getAttribute("data-client-key") || (document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") && !document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key")?.startsWith("%") ? document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") : undefined) || (typeof window !== "undefined" ? (window.__ARTOPAY_PUBLIC_KEY__ || window.VITE_ARTOPAY_PUBLIC_KEY) : undefined) || ${envKeyExpr}) : undefined`
     );
 
     // 2. Ensure openPayment / $ accepts direct publicKey or dynamic lookup
     code = code.replace(
-      /if\(!I\)throw new Error\("\[arto-pay\/js-sdk\] Payment publicKey is required"\);/g,
-      `const resolvedKey = n.publicKey || I || (typeof window !== "undefined" ? (window.__ARTOPAY_PUBLIC_KEY__ || window.VITE_ARTOPAY_PUBLIC_KEY || (document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") && !document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key")?.startsWith("%") ? document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") : undefined)) : undefined) || ${envKeyExpr}; if(!resolvedKey) throw new Error("[arto-pay/js-sdk] Payment publicKey is required");`
+      /if\(![A-Za-z0-9_$]+\)throw new Error\("\[arto-pay\/js-sdk\] Payment publicKey is required"\);/g,
+      `const resolvedKey = n.publicKey || (typeof window !== "undefined" ? (window.__ARTOPAY_PUBLIC_KEY__ || window.VITE_ARTOPAY_PUBLIC_KEY || (document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") && !document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key")?.startsWith("%") ? document.getElementById("arto-pay-sdk-script")?.getAttribute("data-client-key") : undefined)) : undefined) || ${envKeyExpr}; if(!resolvedKey) throw new Error("[arto-pay/js-sdk] Payment publicKey is required");`
     );
 
     // 2.1 Support both secret and clientSecret from official docs
     code = code.replace(
-      /if\(!o\)throw new Error\("\[arto-pay\/js-sdk\] Payment clientSecret is required"\);/g,
-      'const resolvedSecret = o || n.secret; if(!resolvedSecret) throw new Error("[arto-pay/js-sdk] Payment clientSecret is required");'
+      /if\(!([A-Za-z0-9_$]+)\)throw new Error\("\[arto-pay\/js-sdk\] Payment clientSecret is required"\);/g,
+      'const resolvedSecret = $1 || n.clientSecret || n.secret; if(!resolvedSecret) throw new Error("[arto-pay/js-sdk] Payment clientSecret is required");'
     );
     code = code.replace(
       /,E\(o,/g,
@@ -47,7 +47,7 @@ targetFiles.forEach(file => {
 
     // 3. Guard top-level document.currentScript for data-sandbox
     code = code.replace(
-      /null===\(P=document\.currentScript\)\|\|void 0===P\?void 0:P\.getAttribute\("data-sandbox"\)/g,
+      /null===\([A-Za-z0-9_$]+=document\.currentScript\)\|\|void 0===[A-Za-z0-9_$]+\?void 0:[A-Za-z0-9_$]+\.getAttribute\("data-sandbox"\)/g,
       'typeof document !== "undefined" ? (document.currentScript?.getAttribute("data-sandbox")) : undefined'
     );
 

@@ -22,6 +22,27 @@ export interface CreatePaymentIntentParams {
   expiryMinutes?: number;
   callbackUrl?: string;
   returnUrl?: string;
+  customFetch?: typeof fetch;
+}
+
+export interface ArtoPayDiagnosticInfo {
+  httpStatus: number;
+  contentType: string;
+  environment: string;
+  baseUrl: string;
+  businessCodeProvided: boolean;
+  topLevelKeys: string[];
+  nestedDataKeys: string[];
+  transactionIdField: string | null;
+  transactionIdExtracted: boolean;
+  checkoutUrlField: string | null;
+  checkoutUrlFound: boolean;
+  gatewayCode?: string;
+  gatewayMessage?: string;
+  gatewayStatus?: string;
+  isHttpSuccess: boolean;
+  isBusinessSuccess: boolean;
+  isHostedPaymentLinkReady: boolean;
 }
 
 export interface PaymentIntentResult {
@@ -75,6 +96,175 @@ export interface ArtoPayWebhookPayload {
   status?: string;
   paidAt?: string;
   metadata?: Record<string, any>;
+}
+
+/**
+ * Safely extracts checkout URL from ArtoPay response data across root and nested objects.
+ * Checks candidate fields: checkoutUrl, checkout_url, paymentUrl, payment_url, paymentLink, payment_link, redirectUrl, redirect_url, invoiceUrl, invoice_url, url, action.url, actions[].url, nextAction.redirect.url.
+ */
+export function extractArtoPayCheckoutUrl(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  // 1. Direct candidate keys
+  const directKeys = [
+    'checkoutUrl', 'checkout_url',
+    'paymentUrl', 'payment_url',
+    'paymentLink', 'payment_link',
+    'redirectUrl', 'redirect_url',
+    'invoiceUrl', 'invoice_url',
+    'url'
+  ];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().startsWith('http')) {
+      return data[k].trim();
+    }
+  }
+
+  // 2. Nested common envelope keys (payload, data, responseData, result, payment, action, nextAction)
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result', 'payment', 'action', 'nextAction', 'next_action'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = extractArtoPayCheckoutUrl(data[ek]);
+      if (nested) return nested;
+    }
+  }
+
+  // 3. Array of actions
+  if (Array.isArray(data.actions)) {
+    for (const act of data.actions) {
+      if (act && typeof act.url === 'string' && act.url.trim().startsWith('http')) {
+        return act.url.trim();
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Safely extracts transaction ID from ArtoPay response data across root and nested envelopes.
+ */
+export function extractArtoPayTransactionId(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  const directKeys = ['id', 'paymentIntentId', 'payment_intent_id', 'paymentId', 'payment_id', 'transactionId', 'transaction_id', 'uuid'];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().length > 0) {
+      return data[k].trim();
+    }
+  }
+
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result', 'payment'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = extractArtoPayTransactionId(data[ek]);
+      if (nested) return nested;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Identifies the exact field key/path where transaction ID was found for diagnostics.
+ */
+export function findArtoPayTransactionIdField(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  const directKeys = ['id', 'paymentIntentId', 'payment_intent_id', 'paymentId', 'payment_id', 'transactionId', 'transaction_id', 'uuid'];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().length > 0) {
+      return k;
+    }
+  }
+
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result', 'payment'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = findArtoPayTransactionIdField(data[ek]);
+      if (nested) return `${ek}.${nested}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Identifies the exact field key/path where checkout URL was found for diagnostics (or null if none).
+ */
+export function findArtoPayCheckoutUrlField(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+
+  const directKeys = [
+    'checkoutUrl', 'checkout_url',
+    'paymentUrl', 'payment_url',
+    'paymentLink', 'payment_link',
+    'redirectUrl', 'redirect_url',
+    'invoiceUrl', 'invoice_url',
+    'url'
+  ];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().startsWith('http')) {
+      return k;
+    }
+  }
+
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result', 'payment', 'action', 'nextAction', 'next_action'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = findArtoPayCheckoutUrlField(data[ek]);
+      if (nested) return `${ek}.${nested}`;
+    }
+  }
+
+  if (Array.isArray(data.actions)) {
+    for (let i = 0; i < data.actions.length; i++) {
+      const act = data.actions[i];
+      if (act && typeof act.url === 'string' && act.url.trim().startsWith('http')) {
+        return `actions[${i}].url`;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Safely extracts client secret from ArtoPay response data.
+ */
+export function extractArtoPayClientSecret(data: any): string {
+  if (!data || typeof data !== 'object') return '';
+  const directKeys = ['secret', 'clientSecret', 'client_secret'];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().length > 0) return data[k].trim();
+  }
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = extractArtoPayClientSecret(data[ek]);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+/**
+ * Safely extracts customer token from ArtoPay response data.
+ */
+export function extractArtoPayCustomerToken(data: any): string {
+  if (!data || typeof data !== 'object') return '';
+  const directKeys = ['customerToken', 'customer_token', 'token'];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().length > 0) return data[k].trim();
+  }
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = extractArtoPayCustomerToken(data[ek]);
+      if (nested) return nested;
+    }
+  }
+  return '';
 }
 
 export class ArtoPayService {
@@ -153,9 +343,11 @@ export class ArtoPayService {
       headers['X-Business-Unit'] = artopayConfig.businessUnitCode;
     }
 
+    const fetchClient = params.customFetch || fetch;
+
     let response: any = null;
     try {
-      response = await fetch(`${artopayConfig.baseUrl}/v1.1/payment-intents`, {
+      response = await fetchClient(`${artopayConfig.baseUrl}/v1.1/payment-intents`, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload)
@@ -164,46 +356,94 @@ export class ArtoPayService {
       throw new Error(`Gagal menghubungi server gateway ArtoPay (${artopayConfig.baseUrl}): ${err?.message || 'Koneksi jaringan gagal'}`);
     }
 
+    const contentType = response.headers.get('content-type') || '';
+    let resJson: any = null;
+    let rawText = '';
+
+    try {
+      rawText = await response.text();
+      resJson = JSON.parse(rawText);
+    } catch {
+      console.error('[ArtoPay Error] Respons dari gateway bukan format JSON yang valid:', {
+        httpStatus: response.status,
+        contentType,
+        rawSnippet: rawText.substring(0, 300)
+      });
+      throw new Error(
+        `Gateway ArtoPay mengembalikan respons non-JSON (HTTP ${response.status}, Content-Type: ${contentType}). ` +
+        `Isi respons: "${rawText.substring(0, 150)}..."`
+      );
+    }
+
     if (!response.ok) {
       const status = response.status;
-      let errDetail = '';
-      try {
-        const errJson = await response.json();
-        errDetail = errJson.message || errJson.responseMessage || errJson.error || JSON.stringify(errJson);
-      } catch {
-        errDetail = await response.text();
-      }
+      const errDetail = resJson?.message || resJson?.responseMessage || resJson?.error || JSON.stringify(resJson);
+      console.warn('[ArtoPay Gateway Rejection]', {
+        httpStatus: status,
+        contentType,
+        environment: artopayConfig.environment,
+        baseUrl: artopayConfig.baseUrl,
+        errorDetail: errDetail
+      });
       throw new Error(`Gateway ArtoPay menolak pembuatan transaksi (HTTP ${status}): ${errDetail || 'Permintaan tidak dapat diproses'}`);
     }
 
-    const resJson = await response.json();
-    const d = resJson.responseData || resJson.data || resJson;
-    const returnedId = String(d.id || d.paymentIntentId || d.transactionId || '').trim();
-    const clientSecret = d.secret || d.clientSecret || '';
-    const customerToken = d.customerToken || d.token || '';
+    // Extract identifiers and URLs using multi-envelope parser
+    const returnedId = extractArtoPayTransactionId(resJson);
+    const returnedUrl = extractArtoPayCheckoutUrl(resJson);
+    const clientSecret = extractArtoPayClientSecret(resJson);
+    const customerToken = extractArtoPayCustomerToken(resJson);
+
+    // Safe Diagnostic Logging (Zero Sensitive Key/Token Leaks)
+    const topKeys = typeof resJson === 'object' && resJson !== null ? Object.keys(resJson) : [];
+    const nestedData = resJson.payload || resJson.data || resJson.responseData || null;
+    const nestedKeys = nestedData && typeof nestedData === 'object' ? Object.keys(nestedData) : [];
+    const txIdField = findArtoPayTransactionIdField(resJson);
+    const checkoutUrlField = findArtoPayCheckoutUrlField(resJson);
+    const isHttpSuccess = response.status >= 200 && response.status < 300;
+    const gatewayBusinessStatus = resJson.status || nestedData?.status || resJson.responseMessage || undefined;
+    const isBusinessSuccess = isHttpSuccess && (
+      gatewayBusinessStatus === 'created' ||
+      gatewayBusinessStatus === 'Success' ||
+      gatewayBusinessStatus === 'SUCCESS' ||
+      resJson.responseCode === '2000000' ||
+      resJson.responseCode === '2002700'
+    );
+    const isHostedPaymentLinkReady = Boolean(returnedUrl);
+
+    const diagnostic: ArtoPayDiagnosticInfo = {
+      httpStatus: response.status,
+      contentType,
+      environment: artopayConfig.environment,
+      baseUrl: artopayConfig.baseUrl,
+      businessCodeProvided: Boolean(artopayConfig.businessUnitCode),
+      topLevelKeys: topKeys,
+      nestedDataKeys: nestedKeys,
+      transactionIdField: txIdField,
+      transactionIdExtracted: Boolean(returnedId),
+      checkoutUrlField: checkoutUrlField || 'none',
+      checkoutUrlFound: Boolean(returnedUrl),
+      gatewayCode: resJson.code || resJson.responseCode || undefined,
+      gatewayMessage: resJson.message || resJson.responseMessage || undefined,
+      gatewayStatus: gatewayBusinessStatus,
+      isHttpSuccess,
+      isBusinessSuccess,
+      isHostedPaymentLinkReady
+    };
+
+    console.log('[ArtoPay Gateway Diagnostic]', diagnostic);
 
     if (!returnedId) {
-      throw new Error('Gateway ArtoPay merespons berhasil namun tidak mengembalikan ID transaksi yang valid.');
-    }
-
-    // Official ArtoPay hosted payment link URL from gateway response
-    const returnedUrl = String(
-      d.checkoutUrl || 
-      d.paymentUrl || 
-      d.paymentLink || 
-      d.checkout_url || 
-      d.payment_url || 
-      d.url || 
-      ''
-    ).trim();
-
-    // Strict validation: Do not construct fake fallback URLs from transaction ID
-    if (!returnedUrl || !returnedUrl.startsWith('http')) {
       throw new Error(
-        'Gateway ArtoPay merespons berhasil namun tidak mengembalikan URL checkout resmi (checkoutUrl/paymentUrl) yang valid. ' +
-        'Pembuatan payment link tidak dapat diselesaikan.'
+        `Gateway ArtoPay merespons berhasil (HTTP ${response.status}), namun tidak mengembalikan ID transaksi yang valid. ` +
+        `Field respons: [${topKeys.join(', ')}]`
       );
     }
+
+    // Official ArtoPay SDK model: checkoutUrl is optional.
+    // If provided by gateway (for hosted payment link merchants), we preserve it.
+    // If not provided, ArtoPay client SDK modal is used with paymentIntentId, clientSecret, and customerToken.
+    const finalCheckoutUrl = returnedUrl || '';
 
     return {
       success: true,
@@ -213,14 +453,14 @@ export class ArtoPayService {
       serviceType,
       amount,
       currency: 'IDR',
-      checkoutUrl: returnedUrl,
-      qrString: d.qrString || d.qrCodeUrl || undefined,
+      checkoutUrl: finalCheckoutUrl,
+      qrString: resJson.qrString || nestedData?.qrString || resJson.qrCodeUrl || nestedData?.qrCodeUrl || undefined,
       clientSecret,
       customerToken,
       publicKey: artopayConfig.publicKey || undefined,
       sandbox: artopayConfig.environment !== 'production',
       status: 'PENDING',
-      expiresAt: d.expiresAt || expiresAt,
+      expiresAt: resJson.expiresAt || nestedData?.expiresAt || expiresAt,
       createdAt,
       gatewayConfigured: true
     };
@@ -344,6 +584,10 @@ export interface ProcessArtoPayPaymentParams {
   serviceType: 'FOOD' | 'SHOP';
   customerPhone?: string;
   autoRedirect?: boolean;
+  onSuccess?: (result: any) => void;
+  onPending?: (result: any) => void;
+  onError?: (err: any) => void;
+  onClose?: () => void;
 }
 
 export interface ProcessArtoPayPaymentResult {
@@ -351,19 +595,25 @@ export interface ProcessArtoPayPaymentResult {
   orderId: string;
   paymentIntentId: string;
   checkoutUrl: string;
+  clientSecret?: string;
+  customerToken?: string;
+  publicKey?: string;
+  sandbox?: boolean;
   amount: number;
   currency: string;
   expiresAt: string;
+  mode: 'hosted_url' | 'sdk_modal';
 }
 
 /**
  * Frontend client helper following Smart Journey reference pattern:
  * 1. Sends payment creation request to backend.
  * 2. Backend retrieves verified saved order, enforces nominal, and contacts ArtoPay gateway.
- * 3. Redirects customer directly to official ArtoPay hosted payment link URL.
+ * 3. If official hosted checkoutUrl is available, redirects customer to gateway checkout page.
+ * 4. If gateway operates via modal SDK (standard ArtoPay contract), opens official ArtoPay modal SDK using clientSecret, token, paymentId, and orderId.
  */
 export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams): Promise<ProcessArtoPayPaymentResult> {
-  const { orderId, serviceType, customerPhone, autoRedirect = true } = params;
+  const { orderId, serviceType, customerPhone, autoRedirect = true, onSuccess, onPending, onError, onClose } = params;
   const cleanOrderId = typeof orderId === 'string' ? orderId.trim() : '';
   if (!cleanOrderId) {
     throw new Error('ID pesanan tidak boleh kosong.');
@@ -381,26 +631,71 @@ export async function processArtoPayPayment(params: ProcessArtoPayPaymentParams)
 
   const data = await res.json();
   if (!res.ok || !data.success) {
-    throw new Error(data.error || 'Gagal membuat sesi transaksi payment link ArtoPay melalui backend.');
+    throw new Error(data.error || 'Gagal membuat sesi transaksi ArtoPay melalui backend.');
   }
 
   const checkoutUrl = String(data.checkoutUrl || '').trim();
-  if (!checkoutUrl || !checkoutUrl.startsWith('http')) {
-    throw new Error('Gateway ArtoPay tidak mengembalikan URL checkout resmi yang valid.');
+  const paymentIntentId = data.paymentIntentId || data.id;
+
+  // Mode 1: Hosted Payment Link redirect if gateway provided a valid URL
+  if (checkoutUrl && checkoutUrl.startsWith('http')) {
+    if (autoRedirect && typeof window !== 'undefined') {
+      window.location.href = checkoutUrl;
+    }
+    return {
+      success: true,
+      orderId: data.orderId || cleanOrderId,
+      paymentIntentId,
+      checkoutUrl,
+      clientSecret: data.clientSecret,
+      customerToken: data.customerToken,
+      publicKey: data.publicKey,
+      sandbox: data.sandbox,
+      amount: Number(data.amount),
+      currency: data.currency || 'IDR',
+      expiresAt: data.expiresAt,
+      mode: 'hosted_url'
+    };
   }
 
-  if (autoRedirect && typeof window !== 'undefined') {
-    window.location.href = checkoutUrl;
+  // Mode 2: Official ArtoPay SDK Modal mechanism
+  if (typeof window !== 'undefined') {
+    try {
+      const sdk = await import('@arto-pay/js-sdk');
+      const openModal = sdk.openPayment || (sdk.default && sdk.default.openPayment);
+      if (typeof openModal === 'function') {
+        openModal({
+          clientSecret: data.clientSecret,
+          secret: data.clientSecret,
+          paymentId: paymentIntentId,
+          orderId: cleanOrderId,
+          token: data.customerToken,
+          sandbox: data.sandbox !== undefined ? data.sandbox : true,
+          publicKey: data.publicKey,
+          onSuccess,
+          onPending,
+          onError,
+          onClose
+        } as any);
+      }
+    } catch (sdkErr: any) {
+      console.warn('[processArtoPayPayment SDK open warning]', sdkErr);
+    }
   }
 
   return {
     success: true,
     orderId: data.orderId || cleanOrderId,
-    paymentIntentId: data.paymentIntentId || data.id,
-    checkoutUrl,
+    paymentIntentId,
+    checkoutUrl: '',
+    clientSecret: data.clientSecret,
+    customerToken: data.customerToken,
+    publicKey: data.publicKey,
+    sandbox: data.sandbox,
     amount: Number(data.amount),
     currency: data.currency || 'IDR',
-    expiresAt: data.expiresAt
+    expiresAt: data.expiresAt,
+    mode: 'sdk_modal'
   };
 }
 
