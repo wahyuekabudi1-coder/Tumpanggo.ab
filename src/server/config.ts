@@ -34,6 +34,10 @@ let runtimeAdminPassword = (process.env.FOOD_ADMIN_PASSWORD || 'TumpangGoAdmin#2
 let runtimeAdminEmail = (process.env.FOOD_ADMIN_EMAIL || 'tumpanggo@gmail.com').trim().toLowerCase();
 
 function resolveServerPort(): number {
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT, 10);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
   if (process.env.FOOD_PORT) {
     const parsed = parseInt(process.env.FOOD_PORT, 10);
     if (!isNaN(parsed) && parsed > 0) return parsed;
