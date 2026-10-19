@@ -298,6 +298,34 @@ async function runModalAuthTestSuite() {
 
   sdk.closePayment();
 
+  // Scenario: Resolusi dari sdk.configure({ publicKey: '...' })
+  postMessagesSent.length = 0;
+  mockWindow.__ARTOPAY_PUBLIC_KEY__ = undefined;
+  (sdk as any).configure({ sandbox: true, publicKey: 'pk_test_from_configure_999' });
+
+  sdk.openPayment({
+    clientSecret: 'pi_sec_conf_secret',
+    paymentId: 'pi_conf_id',
+    orderId: 'ord_conf_order',
+    sandbox: true
+  } as any);
+
+  for (const listener of messageListeners) {
+    listener({
+      source: iframeContentWindow,
+      data: { type: 'READY' }
+    });
+  }
+
+  const configureInit = postMessagesSent[postMessagesSent.length - 1];
+  assert(
+    configureInit?.msg?.publicKey === 'pk_test_from_configure_999',
+    'Public key berhasil diresolusi dari ArtoPay.configure({ publicKey })',
+    configureInit?.msg?.publicKey
+  );
+
+  sdk.closePayment();
+
   // -------------------------------------------------------------
   // TEST 5: Keamanan Log & Sanitasi Kredensial
   // -------------------------------------------------------------

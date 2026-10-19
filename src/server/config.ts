@@ -262,7 +262,13 @@ export const artopayConfig = {
     return key;
   },
   get publicKey(): string {
-    let key = (process.env.ARTOPAY_PUBLIC_KEY || process.env.VITE_ARTOPAY_PUBLIC_KEY || '').trim();
+    let key = (
+      process.env.ARTOPAY_PUBLIC_KEY || 
+      process.env.VITE_ARTOPAY_PUBLIC_KEY || 
+      process.env.ARTOPAY_CLIENT_KEY || 
+      process.env.VITE_ARTOPAY_CLIENT_KEY || 
+      ''
+    ).trim();
     if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
       key = key.slice(1, -1).trim();
     }

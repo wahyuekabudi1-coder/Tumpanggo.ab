@@ -130,7 +130,7 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
         }
         (window as any).__ARTOPAY_SANDBOX__ = cfg.sandbox;
         if (typeof configure === 'function') {
-          configure({ sandbox: cfg.sandbox });
+          configure({ sandbox: cfg.sandbox, publicKey: cfg.publicKey } as any);
         }
       })
       .catch(() => {});
@@ -593,6 +593,10 @@ export default function ShopMarketplaceView({ onBackToMain }: ShopMarketplaceVie
 
     try {
       setArtopayStatusMsg({ type: 'info', text: 'Membuka modal pembayaran resmi ArtoPay (QRIS)...' });
+      // Ensure SDK configuration is synchronously set before opening modal
+      if (typeof configure === 'function') {
+        configure({ sandbox: isSandbox, publicKey: targetPublicKey } as any);
+      }
       openPayment({
         clientSecret: targetClientSecret,
         secret: targetClientSecret,

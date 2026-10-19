@@ -21,7 +21,7 @@ import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import { app } from './src/server/app';
 import { foodDb } from './src/server/db';
-import { foodConfig, artopayConfig } from './src/server/config';
+import { foodConfig, artopayConfig, reloadEnv } from './src/server/config';
 
 export { app };
 
@@ -57,6 +57,7 @@ async function startServer() {
         const indexPath = path.resolve(process.cwd(), 'index.html');
         let template = fs.readFileSync(indexPath, 'utf-8');
         template = await vite.transformIndexHtml(url, template);
+        reloadEnv();
         const pubKey = artopayConfig.publicKey || '';
         const isSandbox = artopayConfig.environment !== 'production';
         const clientConfigScript = 
@@ -89,6 +90,7 @@ async function startServer() {
       try {
         const prodIndexPath = path.join(distPath, 'index.html');
         let template = fs.readFileSync(prodIndexPath, 'utf-8');
+        reloadEnv();
         const pubKey = artopayConfig.publicKey || '';
         const isSandbox = artopayConfig.environment !== 'production';
         const clientConfigScript = 

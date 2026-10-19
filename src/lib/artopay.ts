@@ -270,6 +270,25 @@ export function extractArtoPayCustomerToken(data: any): string {
 }
 
 /**
+ * Safely extracts public key / client key from ArtoPay response data if returned.
+ */
+export function extractArtoPayPublicKey(data: any): string {
+  if (!data || typeof data !== 'object') return '';
+  const directKeys = ['publicKey', 'public_key', 'clientKey', 'client_key'];
+  for (const k of directKeys) {
+    if (typeof data[k] === 'string' && data[k].trim().length > 0) return data[k].trim();
+  }
+  const envelopeKeys = ['payload', 'data', 'responseData', 'result'];
+  for (const ek of envelopeKeys) {
+    if (data[ek] && typeof data[ek] === 'object') {
+      const nested = extractArtoPayPublicKey(data[ek]);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+/**
  * Validates and normalizes public key, stripping quotes and rejecting placeholder tokens.
  */
 export function cleanPublicKey(key?: string): string | undefined {
@@ -416,6 +435,7 @@ export class ArtoPayService {
     const returnedUrl = extractArtoPayCheckoutUrl(resJson);
     const clientSecret = extractArtoPayClientSecret(resJson);
     const customerToken = extractArtoPayCustomerToken(resJson);
+    const returnedPublicKey = extractArtoPayPublicKey(resJson);
 
     // Safe Diagnostic Logging (Zero Sensitive Key/Token Leaks)
     const topKeys = typeof resJson === 'object' && resJson !== null ? Object.keys(resJson) : [];
@@ -494,7 +514,7 @@ export class ArtoPayService {
       qrString: resJson.qrString || nestedData?.qrString || resJson.qrCodeUrl || nestedData?.qrCodeUrl || undefined,
       clientSecret,
       customerToken,
-      publicKey: cleanPublicKey(artopayConfig.publicKey) || undefined,
+      publicKey: cleanPublicKey(returnedPublicKey || artopayConfig.publicKey) || undefined,
       sandbox: artopayConfig.environment !== 'production',
       status: 'PENDING',
       expiresAt: resJson.expiresAt || nestedData?.expiresAt || expiresAt,
