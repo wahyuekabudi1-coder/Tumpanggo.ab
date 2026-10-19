@@ -644,14 +644,23 @@ export class FoodDatabase {
 
   // --- MERCHANTS ---
   public getMerchants(): Merchant[] {
-    return this.data.merchants.map(m => {
-      const { password, ...safe } = m;
-      return safe as Merchant;
-    });
+    if (!this.data || !Array.isArray(this.data.merchants)) {
+      return [];
+    }
+    return this.data.merchants
+      .filter((m): m is Merchant => Boolean(m && typeof m === 'object'))
+      .map(m => {
+        const { password, ...safe } = m;
+        return {
+          ...safe,
+          id: safe.id || 'm_unknown'
+        } as Merchant;
+      });
   }
 
   public getMerchantById(id: string): Merchant | undefined {
-    const m = this.data.merchants.find(m => m.id === id);
+    if (!this.data || !Array.isArray(this.data.merchants) || !id) return undefined;
+    const m = this.data.merchants.find(m => m && m.id === id);
     if (!m) return undefined;
     const { password, ...safe } = m;
     return safe as Merchant;

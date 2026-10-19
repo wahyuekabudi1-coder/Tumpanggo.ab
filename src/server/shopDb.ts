@@ -1197,6 +1197,7 @@ export class ShopDatabase {
       artopayCustomerToken?: string;
       artopayPublicKey?: string;
       artopayOrderId?: string;
+      artopaySandbox?: boolean;
     }
   ): Promise<ShopOrder> {
     const index = this.data.orders.findIndex(o => o.id === orderId || o.orderNumber === orderId);
@@ -1219,6 +1220,12 @@ export class ShopDatabase {
     }
     if (artopayData.artopayPublicKey) {
       order.artopayPublicKey = artopayData.artopayPublicKey;
+    }
+    if (artopayData.artopayOrderId) {
+      order.artopayOrderId = artopayData.artopayOrderId;
+    }
+    if (artopayData.artopaySandbox !== undefined) {
+      order.artopaySandbox = artopayData.artopaySandbox;
     }
     order.updatedAt = new Date().toISOString();
 

@@ -624,7 +624,7 @@ export async function safeAdminGetDocs(collectionName: string): Promise<any[]> {
   if (!adminDb || !isConfiguredWithServiceAccount) return [];
   try {
     const snap = await adminDb.collection(collectionName).get();
-    return snap.docs.map(doc => doc.data());
+    return snap.docs.map(doc => ({ id: doc.id, ...(doc.data() || {}) }));
   } catch (err: any) {
     console.warn(`[TumpangFood Admin] safeAdminGetDocs failed for ${collectionName}:`, sanitizeErrorMessage(err.message));
     return [];

@@ -2,122 +2,33 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Tumpang Food Server Entry Point
- * Mounts the decoupled Tumpang Food Express app and integrates Vite middlewares.
+ * Tumpang Food Server Universal Entry Point
+ * Detects runtime environment:
+ * - In Production (or plain "node server.ts"): Loads pre-compiled production bundle (dist/server.cjs)
+ * - In Development ("tsx server.ts"): Executes src/server/serverCore.ts with Vite middleware
  */
 
 import path from 'path';
 import fs from 'fs';
-import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 
-// Load environment variables early (.env and .env.local)
-dotenv.config();
-const localEnv = path.resolve(process.cwd(), '.env.local');
-if (fs.existsSync(localEnv)) {
-  dotenv.config({ path: localEnv, override: true });
+const _url = import.meta.url;
+const _require = createRequire(_url);
+const _filename = fileURLToPath(_url);
+const _dirname = path.dirname(_filename);
+const distServer = path.resolve(_dirname, 'dist', 'server.cjs');
+
+let app: any;
+
+// If pre-bundled dist/server.cjs exists and we are running under production or plain node, run bundled server directly
+if (fs.existsSync(distServer) && (process.env.NODE_ENV === 'production' || !process.env.TSX_VERSION)) {
+  const prodMod = _require(distServer);
+  app = prodMod.app || prodMod;
+} else {
+  // Development mode under tsx
+  const devMod = await import('./src/server/serverCore');
+  app = devMod.app;
 }
-
-import express from 'express';
-import { createServer as createViteServer } from 'vite';
-import { app } from './src/server/app';
-import { foodDb } from './src/server/db';
-import { foodConfig, artopayConfig, reloadEnv } from './src/server/config';
 
 export { app };
-
-async function startServer() {
-  const PORT = foodConfig.port;
-
-  // Initialize and synchronize isolated Tumpang Food database asynchronously
-  foodDb.init().catch(err => {
-    console.error('[TumpangFood Server] Failed to synchronize Firestore on boot:', err);
-  });
-
-  // Vite development middleware vs production static distribution
-  const distPath = path.join(process.cwd(), 'dist');
-  const hasDist = fs.existsSync(path.join(distPath, 'index.html'));
-
-  if (process.env.NODE_ENV !== 'production' || !hasDist) {
-    console.log('[TumpangFood Server] Starting Vite development server middleware...');
-    const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false },
-      appType: 'spa',
-    });
-    
-    // Mount Vite dev server middlewares
-    app.use(vite.middlewares);
-
-    // Explicit fallback handler for all client-side navigation routes
-    app.use('*', async (req, res, next) => {
-      const url = req.originalUrl;
-      if (url.startsWith('/api')) {
-        return next();
-      }
-      try {
-        const indexPath = path.resolve(process.cwd(), 'index.html');
-        let template = fs.readFileSync(indexPath, 'utf-8');
-        template = await vite.transformIndexHtml(url, template);
-        reloadEnv();
-        const pubKey = artopayConfig.publicKey || '';
-        const isSandbox = artopayConfig.environment !== 'production';
-        const clientConfigScript = 
-          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
-          `    <script>\n` +
-          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
-          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
-          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
-          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
-          `    </script>`;
-
-        template = template.replace(
-          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
-          clientConfigScript
-        );
-        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
-      } catch (e: any) {
-        vite.ssrFixStacktrace(e);
-        next(e);
-      }
-    });
-  } else {
-    console.log('[TumpangFood Server] Serving production static files from dist...');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      if (req.originalUrl.startsWith('/api')) {
-        res.status(404).json({ error: 'Endpoint API tidak ditemukan' });
-        return;
-      }
-      try {
-        const prodIndexPath = path.join(distPath, 'index.html');
-        let template = fs.readFileSync(prodIndexPath, 'utf-8');
-        reloadEnv();
-        const pubKey = artopayConfig.publicKey || '';
-        const isSandbox = artopayConfig.environment !== 'production';
-        const clientConfigScript = 
-          `<script id="arto-pay-sdk-script" data-client-key="${pubKey}" data-sandbox="${isSandbox}"></script>\n` +
-          `    <script>\n` +
-          `      window.__ARTOPAY_PUBLIC_KEY__ = ${JSON.stringify(pubKey)};\n` +
-          `      window.VITE_ARTOPAY_PUBLIC_KEY = ${JSON.stringify(pubKey)};\n` +
-          `      window.__ARTOPAY_SANDBOX__ = ${isSandbox};\n` +
-          `      window.__ARTOPAY_ENVIRONMENT__ = ${JSON.stringify(artopayConfig.environment)};\n` +
-          `    </script>`;
-
-        template = template.replace(
-          /<script id="arto-pay-sdk-script"[^>]*><\/script>\s*<script>[\s\S]*?<\/script>/,
-          clientConfigScript
-        );
-        res.status(200).set({ 'Content-Type': 'text/html; charset=utf-8' }).end(template);
-      } catch {
-        res.sendFile(path.join(distPath, 'index.html'));
-      }
-    });
-  }
-
-  app.listen(PORT, foodConfig.host, () => {
-    console.log(`[TumpangFood Server] Tumpang Food Server running on http://localhost:${PORT}`);
-  });
-}
-
-if (!process.env.VERCEL) {
-  startServer();
-}

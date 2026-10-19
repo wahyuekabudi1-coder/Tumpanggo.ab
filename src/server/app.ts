@@ -22,6 +22,24 @@ import { artopayRouter } from './routes/artopayRoutes';
 
 export const app = express();
 
+// Safe Request Diagnostics & Tracking Middleware
+app.use((req: any, res, next) => {
+  const reqId = req.headers['x-request-id'] || 'req_' + Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+  req.id = String(reqId);
+  res.setHeader('X-Request-Id', req.id);
+
+  if (req.path.startsWith('/api')) {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      const status = res.statusCode;
+      const logFn = status >= 500 ? console.error : (status >= 400 ? console.warn : console.log);
+      logFn(`[API] [${req.id}] ${req.method} ${req.path} -> ${status} (${duration}ms)`);
+    });
+  }
+  next();
+});
+
 // Global body parsers (limit 15mb for base64 image uploads)
 app.use(express.json({
   limit: '15mb',
@@ -117,10 +135,34 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API endpoint ${req.method} ${req.path} tidak ditemukan.` });
 });
 
-// Global Error Handler
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('[TumpangFood Server Error]', err);
-  res.status(err.status || 500).json({
-    error: err.message || 'Terjadi kesalahan internal pada server Tumpang Food.'
+// Global Error Handler with Safe Internal Diagnostics
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const reqId = (req as any).id || 'req_unknown';
+  const status = typeof err.status === 'number' && err.status >= 400 && err.status < 600 ? err.status : 500;
+  
+  // Log internal diagnostic details safely to server console only (never to browser)
+  console.error(`[TumpangFood Server Error] [ReqID: ${reqId}] ${req.method} ${req.originalUrl} -> HTTP ${status}`);
+  if (err.stack) {
+    console.error(`[TumpangFood StackTrace] [ReqID: ${reqId}]:\n${err.stack}`);
+  } else {
+    console.error(`[TumpangFood ErrorDetails] [ReqID: ${reqId}]:`, err);
+  }
+
+  // Provide safe, user-friendly frontend message without exposing sensitive internals
+  let safeMessage = 'Terjadi kesalahan internal pada server Tumpang Food.';
+  if (status === 404) {
+    safeMessage = err.message || 'Data atau endpoint tidak ditemukan.';
+  } else if (status === 400 || status === 422) {
+    safeMessage = err.message || 'Permintaan tidak valid.';
+  } else if (status === 401 || status === 403) {
+    safeMessage = err.message || 'Akses tidak diizinkan.';
+  } else if (req.path === '/api/merchants' || req.path.startsWith('/api/merchants')) {
+    safeMessage = 'Gagal memuat daftar toko kuliner dari database server.';
+  }
+
+  res.status(status).json({
+    error: safeMessage,
+    code: err.code || (status === 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR'),
+    requestId: reqId
   });
 });

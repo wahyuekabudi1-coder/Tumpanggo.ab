@@ -6,21 +6,30 @@
  * Manages merchant profiles, menu catalogs, orders, and license redemptions.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { foodDb } from '../db';
 import { requireRole, requireMerchantOwner } from '../auth';
 
 export const merchantRouter = Router();
 
 // --- MERCHANT PROFILES ---
-merchantRouter.get('/', (req: Request, res: Response) => {
-  res.json(foodDb.getMerchants());
+merchantRouter.get('/', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const list = foodDb.getMerchants();
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
 });
 
-merchantRouter.get('/:id', (req: Request, res: Response) => {
-  const m = foodDb.getMerchantById(req.params.id);
-  if (!m) return res.status(404).json({ error: 'Merchant not found' });
-  res.json(m);
+merchantRouter.get('/:id', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const m = foodDb.getMerchantById(req.params.id);
+    if (!m) return res.status(404).json({ error: 'Merchant not found' });
+    res.json(m);
+  } catch (err) {
+    next(err);
+  }
 });
 
 merchantRouter.post('/', requireRole(['ADMIN']), async (req: Request, res: Response) => {
@@ -60,8 +69,12 @@ merchantRouter.delete('/:id', requireRole(['ADMIN']), async (req: Request, res: 
 });
 
 // --- MENU CATEGORIES ---
-merchantRouter.get('/:id/categories', (req: Request, res: Response) => {
-  res.json(foodDb.getCategories(req.params.id));
+merchantRouter.get('/:id/categories', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(foodDb.getCategories(req.params.id));
+  } catch (err) {
+    next(err);
+  }
 });
 
 merchantRouter.post('/:id/categories', requireMerchantOwner('id'), async (req: Request, res: Response) => {
@@ -101,8 +114,12 @@ merchantRouter.delete('/:merchantId/categories/:id', requireMerchantOwner('merch
 });
 
 // --- MENU ITEMS ---
-merchantRouter.get('/:id/menu', (req: Request, res: Response) => {
-  res.json(foodDb.getMenuItemsByMerchant(req.params.id));
+merchantRouter.get('/:id/menu', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(foodDb.getMenuItemsByMerchant(req.params.id));
+  } catch (err) {
+    next(err);
+  }
 });
 
 merchantRouter.post('/:id/menu', requireMerchantOwner('id'), async (req: Request, res: Response) => {

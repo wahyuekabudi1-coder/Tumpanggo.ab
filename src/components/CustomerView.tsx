@@ -943,7 +943,7 @@ export default function CustomerView({ onSwitchView, systemConfig, onOpenAuthMod
       const res = await fetch('/api/merchants');
       if (!res.ok) {
         const errJson = await res.json().catch(() => null);
-        const errMsg = errJson?.error || errJson?.detail || `Gagal memuat toko (HTTP ${res.status})`;
+        const errMsg = errJson?.error || errJson?.detail || errJson?.message || (errJson?.requestId ? `Gagal memuat toko (HTTP ${res.status} - ID: ${errJson.requestId})` : `Gagal memuat toko (HTTP ${res.status})`);
         throw new Error(errMsg);
       }
       const data = await res.json();
